@@ -1,44 +1,60 @@
 #pragma once
 
-// ===== TFT on FSPI (Phase-3) =====
-static constexpr int PIN_TFT_CS   = 5;
-static constexpr int PIN_TFT_DC   = 14;
-static constexpr int PIN_TFT_RST  = 4;
-static constexpr int PIN_TFT_BL   = 15;
+// ======================= SPI (FSPI) for TFT =======================
+#define PIN_FSPI_SCK    36
+#define PIN_FSPI_MOSI   35
+#define PIN_FSPI_MISO   13
 
-static constexpr int PIN_FSPI_SCK  = 36;
-static constexpr int PIN_FSPI_MOSI = 35;
-static constexpr int PIN_FSPI_MISO = 37;
+// ======================= Display (ST7735S) =======================
+#define PIN_TFT_CS      5
+#define PIN_TFT_DC      14
+#define PIN_TFT_RST     4
+#define PIN_TFT_BL      15
+#define PIN_TFT_BLK     PIN_TFT_BL   // alias for code paths that use BLK
 
-// ===== Encoder & buttons =====
-static constexpr int PIN_ENC_A    = 16;
-static constexpr int PIN_ENC_B    = 18;
-static constexpr int PIN_ENC_OK   = 38;
-static constexpr int PIN_ENC_BACK = 39;
+// ======================= Rotary Encoder =======================
+#define PIN_ENC_A       16
+#define PIN_ENC_B       18
+#define PIN_ENC_OK      38
+#define PIN_ENC_BACK    39
 
-// ===== I2C (INA226 x2) =====
-static constexpr int PIN_I2C_SDA  = 8;
-static constexpr int PIN_I2C_SCL  = 9;
+// ======================= Rotary 1P8T Mode Selector =======================
+// All inputs use INPUT_PULLUP in setup(); LOW = active
+// These are boot-safe, available on the ESP32-S3 DevKitC-1, and won’t conflict with I2C/SPI.
+#define PIN_ROT_P1      11  // All Off
+#define PIN_ROT_P2      12  // RF Enable
+#define PIN_ROT_P3      13  // Left
+#define PIN_ROT_P4      20  // Right
+#define PIN_ROT_P5      40  // Brake
+#define PIN_ROT_P6      42  // Tail
+#define PIN_ROT_P7      1   // Marker
+#define PIN_ROT_P8      2   // Aux
 
-// ===== Relays (active-LOW) =====
-static constexpr int RELAY_PIN[6] = {6, 7, 10, 21, 17, 33};
+// ======================= I²C Bus (INA226 modules) =======================
+#define PIN_I2C_SDA     8
+#define PIN_I2C_SCL     9
 
-// ===== CC1101 (shares FSPI bus) =====
-static constexpr int PIN_CC1101_CS   = 11;
-static constexpr int PIN_CC1101_GDO0 = 12;
+// ======================= Relays (active-low) =======================
+#define PIN_RELAY_LH       6   // Left Turn
+#define PIN_RELAY_RH       7   // Right Turn
+#define PIN_RELAY_BRAKE   10   // Brake Lights
+#define PIN_RELAY_TAIL    21   // Tail Lights
+#define PIN_RELAY_MARKER  17   // Marker Lights
+#define PIN_RELAY_AUX     33   // Auxiliary
 
-// Buzzer
-static constexpr int PIN_BUZZER = 27;
+// Array for DisplayUI.cpp relay status logic
+static const int RELAY_PIN[] = {
+  PIN_RELAY_LH,
+  PIN_RELAY_RH,
+  PIN_RELAY_BRAKE,
+  PIN_RELAY_TAIL,
+  PIN_RELAY_MARKER,
+  PIN_RELAY_AUX
+};
 
-// --- CC1101 (RF) pins ---
-// Shared SCK/MISO/MOSI come from PIN_FSPI_* (same bus as TFT).
-#ifndef PIN_RF_CS
-  #define PIN_RF_CS   40   // CC1101 CS (chip select)
-#endif
-#ifndef PIN_RF_GDO0
-  #define PIN_RF_GDO0 41   // CC1101 GDO0 (interrupt/status)
-#endif
-#ifndef PIN_RF_GDO2
-  #define PIN_RF_GDO2 42   // CC1101 GDO2 (optional status)
-#endif
+// ======================= Buzzer =======================
+#define PIN_BUZZER      27
 
+// ======================= RF (SYN480R Receiver) =======================
+// DATA pin from SYN480R — must be level-shifted to 3.3 V
+#define PIN_RF_DATA     41

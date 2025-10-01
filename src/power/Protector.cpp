@@ -3,6 +3,7 @@
 #include "../prefs.hpp"
 #include "../relays.hpp"
 
+// Global instance
 Protector protector;
 
 void Protector::begin(Preferences* prefs, float lvpDefault, float ocpDefault) {
@@ -31,6 +32,7 @@ void Protector::setLvpBypass(bool on) {
 void Protector::tripLvp() {
   if (_lvpLatched) return;
   _lvpLatched = true;
+  // immediate hard cut
   for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
   _cutsent = true;
 }
@@ -38,6 +40,7 @@ void Protector::tripLvp() {
 void Protector::tripOcp() {
   if (_ocpLatched) return;
   _ocpLatched = true;
+  // immediate hard cut
   for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
   _cutsent = true;
 }
@@ -52,7 +55,7 @@ void Protector::tick(float srcV, float loadA, uint32_t nowMs) {
   const bool haveV = !isnan(srcV);
   const bool haveI = !isnan(loadA);
 
-  // LVP (only if we have voltage and not bypassing)
+  // -------- LVP (debounced), ignored if bypass enabled --------
   if (!_lvpBypass && haveV && srcV < _lvp) {
     if (_belowStartMs == 0) _belowStartMs = nowMs;
     if (!_lvpLatched && (nowMs - _belowStartMs) >= _lvpTripMs) tripLvp();
@@ -60,7 +63,7 @@ void Protector::tick(float srcV, float loadA, uint32_t nowMs) {
     _belowStartMs = 0; // reset debounce if above threshold / missing / bypassing
   }
 
-  // OCP (only if we have current)
+  // -------- OCP (debounced) --------
   if (haveI && loadA > _ocp) {
     if (_overStartMs == 0) _overStartMs = nowMs;
     if (!_ocpLatched && (nowMs - _overStartMs) >= _ocpTripMs) tripOcp();
@@ -68,9 +71,13 @@ void Protector::tick(float srcV, float loadA, uint32_t nowMs) {
     _overStartMs = 0;
   }
 
-  // Ensure relays are cut after any trip
-  if ((_lvpLatched || _ocpLatched) && !_cutsent) {
+  // -------- Continuous enforcement while latched --------
+  // Previously this only cut once (gated by _cutsent). That allowed relays to be re-enabled later.
+  // Now, while *either* latch is active, we force all relays OFF on every tick.
+  if (_lvpLatched || _ocpLatched) {
     for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
-    _cutsent = true;
+    _cutsent = true;       // keep flag for backward compatibility
+  } else {
+    _cutsent = false;      // reset when no latches are active
   }
 }

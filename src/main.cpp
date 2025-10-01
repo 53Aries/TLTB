@@ -64,6 +64,73 @@ static bool okPressedEdge(){
 }
 static bool backPressed(){ return (digitalRead(PIN_ENC_BACK) == LOW); }
 
+// ---------------- Rotary selector ----------------
+enum RotaryMode {
+  MODE_ALL_OFF = 0,   // P1
+  MODE_RF_ENABLE,     // P2
+  MODE_LEFT,          // P3
+  MODE_RIGHT,         // P4
+  MODE_BRAKE,         // P5
+  MODE_TAIL,          // P6
+  MODE_MARKER,        // P7
+  MODE_AUX            // P8
+};
+
+static RotaryMode readRotary() {
+  // Inputs are PULLUP, so LOW = active position
+  if (digitalRead(PIN_ROT_P1) == LOW) return MODE_ALL_OFF;
+  if (digitalRead(PIN_ROT_P2) == LOW) return MODE_RF_ENABLE;
+  if (digitalRead(PIN_ROT_P3) == LOW) return MODE_LEFT;
+  if (digitalRead(PIN_ROT_P4) == LOW) return MODE_RIGHT;
+  if (digitalRead(PIN_ROT_P5) == LOW) return MODE_BRAKE;
+  if (digitalRead(PIN_ROT_P6) == LOW) return MODE_TAIL;
+  if (digitalRead(PIN_ROT_P7) == LOW) return MODE_MARKER;
+  if (digitalRead(PIN_ROT_P8) == LOW) return MODE_AUX;
+  return MODE_ALL_OFF; // fallback if between detents or no input
+}
+
+static void enforceRotaryMode(RotaryMode m) {
+  // In all non-RF modes, we *force* the relay states each loop.
+  // This guarantees RF is effectively ignored unless in MODE_RF_ENABLE.
+  auto allOff = [](){
+    for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+  };
+
+  switch (m) {
+    case MODE_ALL_OFF:
+      allOff();
+      break;
+
+    case MODE_RF_ENABLE:
+      // Do not force anything; RF subsystem may control relays.
+      break;
+
+    case MODE_LEFT:
+      allOff(); relayOn(R_LEFT);
+      break;
+
+    case MODE_RIGHT:
+      allOff(); relayOn(R_RIGHT);
+      break;
+
+    case MODE_BRAKE:
+      allOff(); relayOn(R_BRAKE);
+      break;
+
+    case MODE_TAIL:
+      allOff(); relayOn(R_TAIL);
+      break;
+
+    case MODE_MARKER:
+      allOff(); relayOn(R_MARKER);
+      break;
+
+    case MODE_AUX:
+      allOff(); relayOn(R_AUX);
+      break;
+  }
+}
+
 // ----------- Relay Scan -----------
 static void scanAllOutputs(){
   if (ui) ui->showScanBegin();
@@ -95,7 +162,6 @@ static uint32_t computeFaultMask(){
 
 // ---------------- setup/loop ----------------
 void setup() {
-  // Avoid watchdog bites during bring-up (optional but harmless for this UI workload)
   esp_task_wdt_deinit();
 
   // TFT & encoder/buttons pins
@@ -110,6 +176,16 @@ void setup() {
   pinMode(PIN_ENC_BACK, INPUT_PULLUP);
 
   attachInterrupt(digitalPinToInterrupt(PIN_ENC_A), enc_isrA, RISING);
+
+  // Rotary switch pins
+  pinMode(PIN_ROT_P1, INPUT_PULLUP);
+  pinMode(PIN_ROT_P2, INPUT_PULLUP);
+  pinMode(PIN_ROT_P3, INPUT_PULLUP);
+  pinMode(PIN_ROT_P4, INPUT_PULLUP);
+  pinMode(PIN_ROT_P5, INPUT_PULLUP);
+  pinMode(PIN_ROT_P6, INPUT_PULLUP);
+  pinMode(PIN_ROT_P7, INPUT_PULLUP);
+  pinMode(PIN_ROT_P8, INPUT_PULLUP);
 
   // Relays safe init
   relaysBegin();
@@ -151,7 +227,7 @@ void setup() {
     .onOtaEnd    = nullptr,
     .onLvCutChanged = nullptr,
     .onOcpChanged   = nullptr,
-    .onRfLearn      = RF::learn,
+    .onRfLearn      = [](int idx){ return RF::learn(idx); },
     .getLvpBypass   = [](){ return protector.lvpBypass(); },
     .setLvpBypass   = [](bool on){ protector.setLvpBypass(on); },
   });
@@ -164,6 +240,8 @@ void setup() {
   // sensors + RF (safe if missing)
   INA226::begin();
   INA226_SRC::begin();
+
+  // === RF bring-up (graceful if not connected) ===
   RF::begin();
 
   // Auto-join Wi-Fi (non-blocking)
@@ -189,7 +267,7 @@ void loop() {
   tele.srcV  = INA226_SRC::PRESENT ? INA226_SRC::readBusV()    : NAN;
   tele.loadA = INA226::PRESENT     ? INA226::readCurrentA()    : NAN;
 
-  // Protection logic (handles NANs and LVP bypass internally)
+  // Protection logic
   protector.tick(tele.srcV, tele.loadA, millis());
   tele.lvpLatched = protector.isLvpLatched() || protector.isOcpLatched();
 
@@ -212,7 +290,12 @@ void loop() {
 
   ui->setFaultMask(computeFaultMask());
   ui->tick(tele);
+
+  // Let RF run, but we will enforce rotary below unless in MODE_RF_ENABLE
   RF::service();
+
+  // Rotary has final say unless P2 (RF enabled)
+  enforceRotaryMode(readRotary());
 
   delay(1); // keep UI responsive
 }

@@ -1,21 +1,18 @@
 #pragma once
-#include <Arduino.h>
-#include <Preferences.h>
-#include "../pins.hpp"
-
-// Compile-time kill switch (optional). You can also pass -DRF_ENABLE=0 in platformio.ini
-#ifndef RF_ENABLE
-#define RF_ENABLE 1
-#endif
+#include <stdint.h>
 
 namespace RF {
-  void begin();      // safe if no module present
-  void service();    // no-op for now
-  bool isPresent();  // true iff CC1101 probed OK
 
-  bool learn(int buttonIdx);            // stubs for now
-  bool tx(int buttonIdx, bool onOff);
+// Initialize SYN480R receiver and load saved codes
+bool begin();
 
-  void setFrequency(float mhz);         // default 433.92
-  void setPA(int pa);                   // default 10
-}
+// Poll and process RF frames (call this often in loop)
+void service();
+
+// True if RF activity has been seen recently (~5s)
+bool isPresent();
+
+// Learn the current remote button and bind it to a relay [0..5]
+bool learn(int relayIndex);
+
+} // namespace RF

@@ -1,128 +1,155 @@
 #include "RF.hpp"
-#include <SPI.h>
+#include <Arduino.h>
+#include "pins.hpp"
+#include "relays.hpp"
 #include <Preferences.h>
 
-#ifndef RF_ENABLE
-#define RF_ENABLE 1
+#ifndef PIN_RF_DATA
+#  error "Define PIN_RF_DATA in pins.hpp for SYN480R DATA input"
 #endif
 
-#if RF_ENABLE
-  #if __has_include(<ELECHOUSE_CC1101_SRC_DRV.h>)
-    #include <ELECHOUSE_CC1101_SRC_DRV.h>
-    #define HAVE_CC1101 1
-  #else
-    #define HAVE_CC1101 0
-  #endif
-#endif
+namespace {
+  constexpr uint32_t QUIET_TIMEOUT_MS = 5000;
+  constexpr uint32_t FRAME_GAP_US     = 2500;
+  constexpr int      MAX_EDGES        = 120;
+  constexpr uint32_t BIN_US           = 200;
+  constexpr uint32_t MAX_PW_US        = 4000;
 
-namespace RF {
+  volatile uint32_t g_edge_ts[MAX_EDGES];
+  volatile int g_edge_cnt = 0;
+  volatile uint32_t g_last_edge_us = 0;
+  volatile bool g_frame_ready = false;
 
-static bool        s_present = false;
-static float       s_freqMhz = 433.92f;
-static int         s_pa      = 10;
-static Preferences s_nvs;
+  uint32_t g_last_activity_ms = 0;
 
-// ---- raw SPI probe of CC1101 VERSION (0x31) ----
-static uint8_t spiReadReg(uint8_t addr) {
-  SPI.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE0));
-  digitalWrite(PIN_RF_CS, LOW);
-  delayMicroseconds(1);
-  (void)SPI.transfer((uint8_t)(0x80 | (addr & 0x3F))); // read
-  uint8_t data = SPI.transfer((uint8_t)0x00);
-  digitalWrite(PIN_RF_CS, HIGH);
-  SPI.endTransaction();
-  return data;
-}
+  struct Learned { uint32_t sig; uint8_t relay; };
+  Learned g_learn[6];
 
-static bool probe_cc1101_present() {
-  pinMode(PIN_RF_CS, OUTPUT);
-  digitalWrite(PIN_RF_CS, HIGH);
-  pinMode(PIN_RF_GDO0, INPUT_PULLUP);
-  pinMode(PIN_RF_GDO2, INPUT_PULLUP);
+  Preferences g_prefs;
+  int8_t activeRelay = -1; // -1 = none on
 
-  // quick VERSION read (0x31). 0xFF => floating bus => likely not present.
-  uint8_t ver = spiReadReg(0x31);
-  return (ver != 0xFF);
-}
-
-#if RF_ENABLE && HAVE_CC1101
-static void applyRadioConfig() {
-  ELECHOUSE_cc1101.setCCMode(1);     // library "CC mode"
-  ELECHOUSE_cc1101.setModulation(2); // ASK/OOK
-  ELECHOUSE_cc1101.setMHZ(s_freqMhz);
-  ELECHOUSE_cc1101.setDRate(4.8);
-  ELECHOUSE_cc1101.setRxBW(58);
-  ELECHOUSE_cc1101.setPA(s_pa);
-}
-#endif
-
-void begin() {
-  // Common safe defaults
-  pinMode(PIN_RF_CS, OUTPUT);
-  digitalWrite(PIN_RF_CS, HIGH);
-  pinMode(PIN_RF_GDO0, INPUT_PULLUP);
-  pinMode(PIN_RF_GDO2, INPUT_PULLUP);
-
-  s_nvs.begin("rf", false);
-
-  // Compile-time disable?
-#if !RF_ENABLE
-  s_present = false;
-  return;
-#else
-  // Runtime pin conflict guard (belt & suspenders)
-  bool pinsConflict =
-      (PIN_RF_CS == PIN_TFT_CS) || (PIN_RF_CS == PIN_ENC_A) || (PIN_RF_CS == PIN_ENC_B) ||
-      (PIN_RF_GDO0 == PIN_ENC_A) || (PIN_RF_GDO0 == PIN_ENC_B) ||
-      (PIN_RF_GDO2 == PIN_ENC_A) || (PIN_RF_GDO2 == PIN_ENC_B);
-  if (pinsConflict) {
-    ets_printf("[RF] Pin conflict detected; disabling RF init\n");
-    s_present = false;
-    return;
+  static inline uint32_t fnv1a32(uint32_t h, uint32_t v) {
+    h ^= v; h *= 16777619u; return h;
   }
 
-  // Probe over the existing SPI (main already called SPI.begin)
-  s_present = probe_cc1101_present();
+  void IRAM_ATTR isr_rf() {
+    uint32_t now = micros();
+    uint32_t dt = now - g_last_edge_us;
+    g_last_edge_us = now;
 
-  #if HAVE_CC1101
-  if (s_present) {
-    // hand off to driver (do not SPI.begin() again)
-    ELECHOUSE_cc1101.setSpiPin(PIN_FSPI_SCK, PIN_FSPI_MISO, PIN_FSPI_MOSI, PIN_RF_CS);
-    ELECHOUSE_cc1101.setGDO(PIN_RF_GDO0, PIN_RF_GDO2);
-
-    bool ok = ELECHOUSE_cc1101.getCC1101();
-    if (!ok) {
-      ELECHOUSE_cc1101.Init();
-      ok = ELECHOUSE_cc1101.getCC1101();
+    if (dt > FRAME_GAP_US) {
+      if (g_edge_cnt > 8) {
+        g_frame_ready = true;
+      }
+      g_edge_cnt = 0;
     }
-    s_present = ok;
-    if (s_present) applyRadioConfig();
+
+    if (g_edge_cnt < MAX_EDGES) {
+      g_edge_ts[g_edge_cnt++] = now;
+    }
   }
-  #endif
-#endif
+
+  bool computeSignature(uint32_t &outHash) {
+    noInterrupts();
+    if (!g_frame_ready) { interrupts(); return false; }
+    int n = g_edge_cnt;
+    static uint32_t ts[MAX_EDGES];
+    for (int i = 0; i < n; i++) ts[i] = g_edge_ts[i];
+    g_frame_ready = false;
+    interrupts();
+
+    if (n < 10) return false;
+
+    uint32_t h = 2166136261u;
+    for (int i = 1; i < n; i++) {
+      uint32_t pw = ts[i] - ts[i - 1];
+      if (pw > MAX_PW_US) pw = MAX_PW_US;
+      uint32_t q = pw / BIN_US;
+      h = fnv1a32(h, q);
+    }
+    outHash = h;
+    g_last_activity_ms = millis();
+    return true;
+  }
+
+  void loadPrefs() {
+    g_prefs.begin("tltb", false);
+    for (int i = 0; i < 6; i++) {
+      char key[16];
+      snprintf(key, sizeof(key), "rf_sig%u", i);
+      g_learn[i].sig = g_prefs.getULong(key, 0);
+      snprintf(key, sizeof(key), "rf_rel%u", i);
+      g_learn[i].relay = (uint8_t)g_prefs.getUChar(key, (uint8_t)i);
+    }
+  }
+
+  void saveSlot(int i) {
+    char key[16];
+    snprintf(key, sizeof(key), "rf_sig%u", i);
+    g_prefs.putULong(key, g_learn[i].sig);
+    snprintf(key, sizeof(key), "rf_rel%u", i);
+    g_prefs.putUChar(key, g_learn[i].relay);
+  }
+
+  void handleTrigger(uint8_t rindex) {
+    if (rindex >= (uint8_t)R_COUNT) return;
+
+    if (activeRelay == rindex) {
+      // Same relay pressed again → turn it OFF
+      relayOff((RelayIndex)rindex);
+      activeRelay = -1;
+      return;
+    }
+
+    // Turn off any other relay
+    for (int i = 0; i < (int)R_COUNT; i++) {
+      relayOff((RelayIndex)i);
+    }
+
+    // Turn this one ON
+    relayOn((RelayIndex)rindex);
+    activeRelay = rindex;
+  }
+} // namespace
+
+bool RF::begin() {
+  pinMode(PIN_RF_DATA, INPUT);
+  attachInterrupt(digitalPinToInterrupt(PIN_RF_DATA), isr_rf, CHANGE);
+  loadPrefs();
+  g_last_activity_ms = millis();
+  return true;
 }
 
-void service() {
-  // Reserved for future RX/TX background tasks
+void RF::service() {
+  uint32_t sig;
+  if (computeSignature(sig)) {
+    for (int i = 0; i < 6; i++) {
+      if (g_learn[i].sig != 0 && g_learn[i].sig == sig) {
+        handleTrigger(g_learn[i].relay);
+        return;
+      }
+    }
+  }
 }
 
-bool isPresent() { return s_present; }
-
-bool learn(int /*buttonIdx*/) { return false; }           // implement protocol later
-bool tx(int /*buttonIdx*/, bool /*onOff*/) { return false; }
-
-void setFrequency(float mhz) {
-  s_freqMhz = mhz;
-#if RF_ENABLE && HAVE_CC1101
-  if (s_present) ELECHOUSE_cc1101.setMHZ(mhz);
-#endif
+bool RF::isPresent() {
+  return (millis() - g_last_activity_ms) < QUIET_TIMEOUT_MS;
 }
 
-void setPA(int pa) {
-  s_pa = pa;
-#if RF_ENABLE && HAVE_CC1101
-  if (s_present) ELECHOUSE_cc1101.setPA(pa);
-#endif
-}
+bool RF::learn(int relayIndex) {
+  if (relayIndex < 0) relayIndex = 0;
+  if (relayIndex > 5) relayIndex = 5;
 
-} // namespace RF
+  uint32_t start = millis();
+  while (millis() - start < 5000) {
+    uint32_t sig;
+    if (computeSignature(sig)) {
+      g_learn[relayIndex].sig = sig;
+      g_learn[relayIndex].relay = (uint8_t)relayIndex;
+      saveSlot(relayIndex);
+      return true;
+    }
+    delay(5);
+  }
+  return false;
+}
