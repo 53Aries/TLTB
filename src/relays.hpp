@@ -10,6 +10,7 @@ enum RelayIndex : uint8_t {
   R_TAIL,
   R_MARKER,
   R_AUX,
+  R_ENABLE,
   R_COUNT
 };
 
@@ -18,7 +19,8 @@ static_assert(sizeof(RELAY_PIN) / sizeof(RELAY_PIN[0]) == R_COUNT,
               "RELAY_PIN[] size must equal R_COUNT");
 
 // We track software state since OFF uses high-Z (INPUT)
-static bool g_relay_on[R_COUNT] = {false, false, false, false, false, false};
+// Single shared definition provided in relays.cpp
+extern bool g_relay_on[R_COUNT];
 
 // ----- Open-drain emulation on 3.3V MCU driving 5V LOW-trigger inputs -----
 // ON  = sink to GND  -> pinMode(OUTPUT); digitalWrite(LOW)

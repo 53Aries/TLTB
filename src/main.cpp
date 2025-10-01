@@ -129,6 +129,15 @@ static void enforceRotaryMode(RotaryMode m) {
       allOff(); relayOn(R_AUX);
       break;
   }
+
+  // Relay 7 (R_ENABLE) must be OFF when the selector is in position 1 (ALL_OFF)
+  // and ON in all other positions. This is independent of RF control for the
+  // other relays — we enforce it here.
+  if (m == MODE_ALL_OFF) {
+    relayOff(R_ENABLE);
+  } else {
+    relayOn(R_ENABLE);
+  }
 }
 
 // ----------- Relay Scan -----------

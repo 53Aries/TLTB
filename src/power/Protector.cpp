@@ -1,7 +1,7 @@
 #include "Protector.hpp"
 #include <math.h>
-#include "../prefs.hpp"
-#include "../relays.hpp"
+#include "prefs.hpp"
+#include "relays.hpp"
 
 // Global instance
 Protector protector;

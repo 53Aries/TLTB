@@ -33,6 +33,7 @@ static const char* const kMenuItems[] = {
   "Scan All Outputs",
   "Learn RF Button",
   "About",
+  "12V System",
   "System Info"
 };
 static constexpr int MENU_COUNT = sizeof(kMenuItems) / sizeof(kMenuItems[0]);
@@ -271,8 +272,11 @@ void DisplayUI::showStatus(const Telemetry& t){
   const int yActive = 26;  const int hActive = 18;   // size 1 or 2
   const int ySwitch = 44;  const int hSwitch = 12;
   const int ySrcV   = 58;  const int hSrcV   = 12;
-  const int yLvp    = 72;  const int hLvp    = 12;
-  const int yHint   = 98;  const int hHint   = 12;
+  // 12V status line sits below InputV
+  const int y12     = ySrcV + hSrcV + 2; const int h12 = 12;
+  // move LVP display a bit further down to avoid overlap
+  const int yLvp    = y12 + h12 + 2;  const int hLvp    = 12;
+  const int yHint   = 100;  const int hHint   = 12;
 
   static bool s_inited = false;
   static String s_prevActive;
@@ -323,6 +327,11 @@ void DisplayUI::showStatus(const Telemetry& t){
     _tft->setCursor(4, ySrcV);
     if (isnan(t.srcV)) _tft->print("InputV:  N/A");
     else               _tft->printf("InputV: %4.2f V", t.srcV);
+
+    // Line 3.5: 12V enable status
+    _tft->setCursor(4, y12);
+    bool en = relayIsOn(R_ENABLE);
+    _tft->print("12V sys: "); _tft->print(en?"ENABLED":"DISABLED");
 
     // Line 4: LVP
     _tft->setCursor(4, yLvp);
@@ -394,17 +403,37 @@ void DisplayUI::showStatus(const Telemetry& t){
   // InputV changed?
   if ((isnan(t.srcV) != isnan(_last.srcV)) ||
       (!isnan(t.srcV) && fabsf(t.srcV - _last.srcV) > 0.02f)) {
-    _tft->fillRect(0, ySrcV-2, W, hSrcV, ST77XX_BLACK);
+  // clear both InputV and the 12V status line below it
+  _tft->fillRect(0, ySrcV-2, W, (y12 + h12) - (ySrcV-2), ST77XX_BLACK);
     _tft->setTextSize(1);
     _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     _tft->setCursor(4, ySrcV);
     if (isnan(t.srcV)) _tft->print("InputV:  N/A");
     else               _tft->printf("InputV: %4.2f V", t.srcV);
+    // redraw 12V line as well
+    _tft->setCursor(4, y12);
+    bool en = relayIsOn(R_ENABLE);
+    _tft->print("12V sys: "); _tft->print(en?"ENABLED":"DISABLED");
+  }
+
+  // 12V system state changed? redraw its line (covers cases where InputV didn't change)
+  {
+    static bool prev12 = false;
+    bool en = relayIsOn(R_ENABLE);
+    if (en != prev12) {
+      // clear the area and redraw the 12V status
+      _tft->fillRect(0, y12-2, W, h12+2, ST77XX_BLACK);
+      _tft->setTextSize(1);
+      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      _tft->setCursor(4, y12);
+      _tft->print("12V sys: "); _tft->print(en?"ENABLED":"DISABLED");
+      prev12 = en;
+    }
   }
 
   // LVP status or bypass changed?
   {
-    static bool prevBypass = false;
+  static bool prevBypass = false;
     bool bypass = _getLvpBypass ? _getLvpBypass() : false;
     if ((t.lvpLatched != _last.lvpLatched) || (bypass != prevBypass)) {
       _tft->fillRect(0, yLvp-2, W, hLvp, ST77XX_BLACK);
@@ -631,7 +660,27 @@ void DisplayUI::handleMenuSelect(int idx){
       _tft->setCursor(6,36); _tft->println("BACK=Exit");
       while(!backPressed()) delay(10);
       break;
-    case 10: showSystemInfo(); break;
+    case 10: {
+      // 12V System toggle UI
+      while(true) {
+        _tft->fillScreen(ST77XX_BLACK);
+        _tft->setCursor(6,10); _tft->println("12V System");
+        bool en = relayIsOn(R_ENABLE);
+        _tft->setCursor(6,30); _tft->print("State: "); _tft->print(en?"ENABLED":"DISABLED");
+        _tft->setCursor(6,56); _tft->print("OK=Toggle  BACK=Exit");
+        if (okPressed()) {
+          if (en) relayOff(R_ENABLE); else relayOn(R_ENABLE);
+          // brief feedback
+          _tft->fillRect(6,30,140,12,ST77XX_BLACK);
+          _tft->setCursor(6,30); _tft->print("Toggled");
+          delay(350);
+        }
+        if (backPressed()) break;
+        delay(20);
+      }
+      g_forceHomeFull = true;
+    } break;
+    case 11: showSystemInfo(); break;
   }
 }
 

@@ -3,7 +3,7 @@
 // ======================= SPI (FSPI) for TFT =======================
 #define PIN_FSPI_SCK    36
 #define PIN_FSPI_MOSI   35
-#define PIN_FSPI_MISO   13
+#define PIN_FSPI_MISO   37
 
 // ======================= Display (ST7735S) =======================
 #define PIN_TFT_CS      5
@@ -41,6 +41,8 @@
 #define PIN_RELAY_TAIL    21   // Tail Lights
 #define PIN_RELAY_MARKER  17   // Marker Lights
 #define PIN_RELAY_AUX     33   // Auxiliary
+// Relay 7: high-current 12V enable (active-low like others)
+#define PIN_RELAY_ENABLE  34   // Enable 12V buck (choose a free GPIO)
 
 // Array for DisplayUI.cpp relay status logic
 static const int RELAY_PIN[] = {
@@ -50,6 +52,7 @@ static const int RELAY_PIN[] = {
   PIN_RELAY_TAIL,
   PIN_RELAY_MARKER,
   PIN_RELAY_AUX
+  ,PIN_RELAY_ENABLE
 };
 
 // ======================= Buzzer =======================
