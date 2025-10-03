@@ -1,13 +1,13 @@
 #pragma once
 
 // ======================= SPI (FSPI) for TFT =======================
-#define PIN_FSPI_SCK    36
-#define PIN_FSPI_MOSI   35
-#define PIN_FSPI_MISO   37
+#define PIN_FSPI_SCK    36 // SCL
+#define PIN_FSPI_MOSI   35 // SDA
+#define PIN_FSPI_MISO   37 // not used, but must be defined
 
 // ======================= Display (ST7735S) =======================
 #define PIN_TFT_CS      5
-#define PIN_TFT_DC      14
+#define PIN_TFT_DC      6
 #define PIN_TFT_RST     4
 #define PIN_TFT_BL      15
 #define PIN_TFT_BLK     PIN_TFT_BL   // alias for code paths that use BLK
@@ -35,14 +35,14 @@
 #define PIN_I2C_SCL     9
 
 // ======================= Relays (active-low) =======================
-#define PIN_RELAY_LH       6   // Left Turn
-#define PIN_RELAY_RH       7   // Right Turn
-#define PIN_RELAY_BRAKE   10   // Brake Lights
-#define PIN_RELAY_TAIL    21   // Tail Lights
-#define PIN_RELAY_MARKER  17   // Marker Lights
-#define PIN_RELAY_AUX     33   // Auxiliary
+#define PIN_RELAY_LH       14   // Left Turn
+#define PIN_RELAY_RH       7    // Right Turn
+#define PIN_RELAY_BRAKE   10    // Brake Lights
+#define PIN_RELAY_TAIL    21    // Tail Lights
+#define PIN_RELAY_MARKER  17    // Marker Lights
+#define PIN_RELAY_AUX     25    // Auxiliary (moved to a free GPIO)
 // Relay 7: high-current 12V enable (active-low like others)
-#define PIN_RELAY_ENABLE  34   // Enable 12V buck (choose a free GPIO)
+#define PIN_RELAY_ENABLE  26    // Enable 12V buck (moved to a free GPIO)
 
 // Array for DisplayUI.cpp relay status logic
 static const int RELAY_PIN[] = {
@@ -51,8 +51,8 @@ static const int RELAY_PIN[] = {
   PIN_RELAY_BRAKE,
   PIN_RELAY_TAIL,
   PIN_RELAY_MARKER,
-  PIN_RELAY_AUX
-  ,PIN_RELAY_ENABLE
+  PIN_RELAY_AUX,
+  PIN_RELAY_ENABLE
 };
 
 // ======================= Buzzer =======================
@@ -60,4 +60,5 @@ static const int RELAY_PIN[] = {
 
 // ======================= RF (SYN480R Receiver) =======================
 // DATA pin from SYN480R — must be level-shifted to 3.3 V
-#define PIN_RF_DATA     41
+#define PIN_RF_DATA     45   // use a free GPIO (confirmed available)
+// ======================= Battery Voltage Monitor =======================

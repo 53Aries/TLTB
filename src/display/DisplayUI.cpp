@@ -8,6 +8,7 @@
 #include "pins.hpp"
 #include "prefs.hpp"
 #include "relays.hpp"
+#include "rf/RF.hpp"
 
 // extern relay state bitfield/array provided by relay module
 extern bool g_relay_on[];  // indexed by RelayIndex (R_LEFT..R_AUX)
@@ -32,6 +33,7 @@ static const char* const kMenuItems[] = {
   "Set OCP Limit",
   "Scan All Outputs",
   "Learn RF Button",
+  "Clear RF Remotes",
   "About",
   "12V System",
   "System Info"
@@ -612,10 +614,7 @@ void DisplayUI::handleMenuSelect(int idx){
     case 2: runOta(); break;
     case 3: adjustBrightness(); break;
     case 4: adjustLvCutoff(); break;
-
-    // ---- Instant toggle + brief confirmation; returns immediately ----
     case 5: toggleLvpBypass(); break;
-
     case 6: adjustOcpLimit(); break;
     case 7: if(_scanAll) _scanAll(); break;
     case 8: {
@@ -632,35 +631,67 @@ void DisplayUI::handleMenuSelect(int idx){
       };
 
       drawSel(sel);
-      while(true){
-        int8_t dd=readStep();
-        if(dd){
+
+      // Loop until user presses BACK; allow multiple learns without exiting the menu.
+      bool exitRF = false;
+      while(!exitRF){
+        int8_t dd = readStep();
+        if (dd) {
           sel = ((sel + dd) % 6 + 6) % 6;
         }
         if (sel != lastSel) { drawSel(sel); lastSel = sel; }
 
-        if(okPressed()){
+        if (okPressed()) {
+          // Start listening / learning
           _tft->fillRect(0,60,160,14,ST77XX_BLACK);
           _tft->setCursor(6,60); _tft->print("Listening...");
           bool ok = _rfLearn ? _rfLearn(sel) : false;
-          _tft->fillRect(0,60,160,14,ST77XX_BLACK);
+
+          // Show brief result and allow encoder changes while visible.
+          _tft->fillRect(0,60,160,28,ST77XX_BLACK);
           _tft->setCursor(6,60); _tft->print(ok ? "Saved" : "Failed");
-          _tft->setCursor(6,76); _tft->print("BACK=Exit");
-          while(!backPressed()) delay(10);
-          break;
+          _tft->setCursor(6,76); _tft->print("OK=Learn  BACK=Exit");
+
+          uint32_t shownAt = millis();
+          // brief window where encoder/back/ok are polled so user can change selection or immediately re-learn
+          while (millis() - shownAt < 800) {
+            int8_t dd2 = readStep();
+            if (dd2) {
+              sel = ((sel + dd2) % 6 + 6) % 6;
+            }
+            if (sel != lastSel) { drawSel(sel); lastSel = sel; }
+            if (backPressed()) { exitRF = true; break; }
+            if (okPressed()) { break; } // immediate re-learn of current selection
+            delay(12);
+          }
+          // continue outer loop (either to re-learn, change selection, or exit if BACK pressed)
         }
-        if(backPressed()) break;
+
+        if (backPressed()) break;
         delay(12);
       }
     } break;
-    case 9: // About
+    case 9: {
+      // Clear RF Remotes (confirmation)
+      _tft->fillScreen(ST77XX_BLACK);
+      _tft->setCursor(6,10); _tft->println("Clear RF Remotes");
+      _tft->setCursor(6,26); _tft->println("Erase all learned");
+      _tft->setCursor(6,38); _tft->println("remotes from memory?");
+      _tft->setCursor(6,62); _tft->println("OK=Confirm  BACK=Cancel");
+      while (true) {
+        if (okPressed())   { RF::clearAll(); _tft->fillRect(6,80,148,12,ST77XX_BLACK); _tft->setCursor(6,80); _tft->print("Cleared"); delay(600); g_forceHomeFull = true; break; }
+        if (backPressed()) { g_forceHomeFull = true; break; }
+        delay(10);
+      }
+    } break;
+    case 10: // About
       _tft->fillScreen(ST77XX_BLACK);
       _tft->setCursor(6,10);
       _tft->println("Swanger Innovations\nTLTB");
       _tft->setCursor(6,36); _tft->println("BACK=Exit");
       while(!backPressed()) delay(10);
       break;
-    case 10: {
+    case 11: {
       // 12V System toggle UI
       while(true) {
         _tft->fillScreen(ST77XX_BLACK);
@@ -680,7 +711,7 @@ void DisplayUI::handleMenuSelect(int idx){
       }
       g_forceHomeFull = true;
     } break;
-    case 11: showSystemInfo(); break;
+    case 12: showSystemInfo(); break;
   }
 }
 

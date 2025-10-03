@@ -1,0 +1,302 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "PlatformIO: Build (workspace)",
+			"type": "shell",
+			"command": "pio",
+			"args": [
+				"run"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (rc-switch path)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (rc-switch path)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Upload (rc-switch path)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--target",
+				"upload",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Full Clean (switch to rc-switch)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--target",
+				"fullclean",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build + Upload (finalize rc-switch)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--target",
+				"upload",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (fix rc-switch braces)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (retry after fixes)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Upload (post-fix)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--target",
+				"upload",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		}
+	]
+}
