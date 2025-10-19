@@ -57,6 +57,11 @@ public:
   // OCP modal
   bool protectionAlarm(const char* title, const char* line1, const char* line2 = nullptr);
 
+  // Optional: expose mode getters/setters if other modules need it later
+  enum UIMode : uint8_t { MODE_HD = 0, MODE_RV = 1 };
+  UIMode mode() const { return (UIMode)_mode; }
+  void   toggleMode();
+
 private:
   // draws
   void drawHome(bool force=false);
@@ -77,6 +82,7 @@ private:
   // small helpers
   int8_t readStep(); bool okPressed(); bool backPressed();
   void   saveBrightness(uint8_t v); void saveLvCut(float v);
+  void   saveMode(uint8_t m);
 
   // fault banner (scrolling)
   void   rebuildFaultText();        // build _faultText when mask changes
@@ -117,4 +123,8 @@ private:
 
   bool _inMenu = false;
   uint32_t _lastOkMs = 0;
+
+  // Home interactions
+  uint8_t _mode = 0;          // 0=HD, 1=RV (persisted)
+  int     _homeFocus = 0;     // 0 = none, 1 = MODE line highlighted
 };

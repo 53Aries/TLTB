@@ -14,7 +14,7 @@ enum RelayIndex : uint8_t {
   R_COUNT
 };
 
-// pins.hpp must provide RELAY_PIN[] with 6 entries
+// pins.hpp must provide RELAY_PIN[] with R_COUNT entries (7 including R_ENABLE)
 static_assert(sizeof(RELAY_PIN) / sizeof(RELAY_PIN[0]) == R_COUNT,
               "RELAY_PIN[] size must equal R_COUNT");
 
@@ -60,5 +60,19 @@ inline void relaysBegin(){
   for (int i = 0; i < (int)R_COUNT; ++i){
     _floatOff(RELAY_PIN[i]);      // OFF = INPUT (high-Z)
     g_relay_on[i] = false;
+  }
+}
+
+// Optional: stable display names for primary user relays
+inline const char* relayName(RelayIndex r){
+  switch(r){
+    case R_LEFT:   return "LEFT";
+    case R_RIGHT:  return "RIGHT";
+    case R_BRAKE:  return "BRAKE";
+    case R_TAIL:   return "TAIL";
+    case R_MARKER: return "MARKER";
+    case R_AUX:    return "AUX";
+    case R_ENABLE: return "12V";
+    default:       return "R?";
   }
 }

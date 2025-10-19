@@ -5,6 +5,7 @@
 
 extern "C" {
   #include "esp_task_wdt.h"
+  #include "esp_ota_ops.h"
 }
 
 #include <WiFi.h>
@@ -14,6 +15,7 @@ extern "C" {
 #include "display/DisplayUI.hpp"
 #include "sensors/INA226.hpp"
 #include "rf/RF.hpp"
+#include "buzzer.hpp"
 #include "relays.hpp"
 #include <Preferences.h>
 #include "power/Protector.hpp"
@@ -23,6 +25,9 @@ static Adafruit_ST7735* tft = nullptr;   // shared SPI
 static DisplayUI* ui = nullptr;
 Preferences prefs;
 static Telemetry tele{};
+// OTA rollback verification
+static bool g_otaPendingVerify = false;
+static uint32_t g_otaBootMs = 0;
 
 // LEDC (backlight)
 static const int BL_CHANNEL = 0;
@@ -114,7 +119,12 @@ static void enforceRotaryMode(RotaryMode m) {
       break;
 
     case MODE_BRAKE:
-      allOff(); relayOn(R_BRAKE);
+      allOff();
+      if (getUiMode() == 1) { // RV
+        relayOn(R_LEFT); relayOn(R_RIGHT);
+      } else {
+        relayOn(R_BRAKE);
+      }
       break;
 
     case MODE_TAIL:
@@ -179,6 +189,17 @@ void setup() {
   pinMode(PIN_TFT_DC, OUTPUT);
   pinMode(PIN_TFT_RST, OUTPUT);
 
+  // Check if this app is booting in pending-verify state (OTA rollback flow)
+  {
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    if (running) {
+      esp_ota_img_states_t st;
+      if (esp_ota_get_state_partition(running, &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY) {
+        g_otaPendingVerify = true;
+        g_otaBootMs = millis();
+      }
+    }
+  }
   pinMode(PIN_ENC_A,    INPUT_PULLUP);
   pinMode(PIN_ENC_B,    INPUT_PULLUP);
   pinMode(PIN_ENC_OK,   INPUT_PULLUP);
@@ -200,7 +221,12 @@ void setup() {
   relaysBegin();
 
   // SPI once (shared TFT + RF)
+  // Explicitly configure SPI pins before begin to ensure JTAG defaults are overridden
+  pinMode(PIN_FSPI_SCK, OUTPUT);
+  pinMode(PIN_FSPI_MOSI, OUTPUT);
+  pinMode(PIN_FSPI_MISO, INPUT);
   SPI.begin(PIN_FSPI_SCK, PIN_FSPI_MISO, PIN_FSPI_MOSI, PIN_TFT_CS);
+  delay(10); // allow peripheral settle
 
   // TFT reset + init
   digitalWrite(PIN_TFT_RST, HIGH); delay(20);
@@ -208,9 +234,16 @@ void setup() {
   digitalWrite(PIN_TFT_RST, HIGH); delay(120);
 
   tft = new Adafruit_ST7735(&SPI, PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST);
-  tft->setSPISpeed(16000000UL);
+  // Start with a conservative SPI speed for signal integrity on longer jumpers
+  tft->setSPISpeed(8000000UL);
   tft->initR(INITR_BLACKTAB);
   tft->setRotation(1);
+  // Diagnostic color cycle to verify bus operation visually
+  for (int i=0;i<3;i++){
+    uint16_t c = (i==0)?ST77XX_RED: (i==1)?ST77XX_GREEN: ST77XX_BLUE;
+    tft->fillScreen(c);
+    delay(250);
+  }
   tft->fillScreen(ST77XX_BLACK);
 
   // Backlight (8-bit)
@@ -252,6 +285,7 @@ void setup() {
 
   // === RF bring-up (graceful if not connected) ===
   RF::begin();
+  Buzzer::begin();
 
   // Auto-join Wi-Fi (non-blocking)
   {
@@ -279,6 +313,8 @@ void loop() {
   // Protection logic
   protector.tick(tele.srcV, tele.loadA, millis());
   tele.lvpLatched = protector.isLvpLatched() || protector.isOcpLatched();
+  // Buzzer fault pattern tick (priority over one-shot)
+  Buzzer::tick(tele.lvpLatched, millis());
 
   // OCP modal
   static bool prevOcp = false;
@@ -299,6 +335,14 @@ void loop() {
 
   ui->setFaultMask(computeFaultMask());
   ui->tick(tele);
+
+  // If we booted a new OTA image in PENDING_VERIFY, mark it valid after a short stable run
+  if (g_otaPendingVerify) {
+    if (millis() - g_otaBootMs > 8000) { // ~8 seconds of healthy loop
+      esp_ota_mark_app_valid_cancel_rollback();
+      g_otaPendingVerify = false;
+    }
+  }
 
   // Let RF run, but we will enforce rotary below unless in MODE_RF_ENABLE
   RF::service();

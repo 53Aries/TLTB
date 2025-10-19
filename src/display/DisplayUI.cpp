@@ -10,12 +10,11 @@
 #include "relays.hpp"
 #include "rf/RF.hpp"
 
-// extern relay state bitfield/array provided by relay module
-extern bool g_relay_on[];  // indexed by RelayIndex (R_LEFT..R_AUX)
-
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <Update.h>
+#include <ArduinoJson.h>
+#include "ota/Ota.hpp"
 
 // ================== NEW: force full home repaint flag ==================
 // When returning from menu/settings pages that did fillScreen(), we must
@@ -24,40 +23,28 @@ static bool g_forceHomeFull = false;
 
 // ---------------- Menu ----------------
 static const char* const kMenuItems[] = {
-  "Wi-Fi Connect",
-  "Wi-Fi Forget",
-  "OTA Update",
-  "Brightness",
+  "Scan All Outputs",
   "Set LVP Cutoff",
   "LVP Bypass",
   "Set OCP Limit",
-  "Scan All Outputs",
+  "12V System",
   "Learn RF Button",
   "Clear RF Remotes",
-  "About",
-  "12V System",
+  "Brightness",
+  "Wi-Fi Connect",
+  "Wi-Fi Forget",
+  "OTA Update",
   "System Info"
 };
 static constexpr int MENU_COUNT = sizeof(kMenuItems) / sizeof(kMenuItems[0]);
 
 static const char* const OTA_URL_KEY = "ota_url";
+// Preference key for HD/RV mode
+// Local color for selection background (no ST77XX_DARKGREY in lib)
+static const uint16_t COLOR_DARKGREY = 0x4208; // 16-bit RGB565 approx dark gray
 
 // Relay labels (legacy helper)
-static const char* relayNameByIdx(int idx){
-  switch(idx){
-    case 0: return "LEFT";
-    case 1: return "RIGHT";
-    case 2: return "BRAKE";
-    case 3: return "TAIL";
-    case 4: return "MARKER";
-    case 5: return "AUX";
-    default: {
-      static char buf[8];
-      snprintf(buf, sizeof(buf), "R%d", idx+1);
-      return buf;
-    }
-  }
-}
+// (legacy helper removed; relay labels are handled contextually where needed)
 
 // ===================== Debounced 1P8T =====================
 // Read raw mask of 1P8T inputs (LOW = selected)
@@ -119,9 +106,9 @@ static const char* rotaryLabel() {
     case 2:  return "LEFT";  // P3
     case 3:  return "RIGHT"; // P4
     case 4:  return "BRAKE"; // P5
-    case 5:  return "TAIL";  // P6
+    case 5:  return (getUiMode()==1? "REV" : "TAIL");  // P6
     case 6:  return "MARK";  // P7
-    case 7:  return "AUX";   // P8
+    case 7:  return (getUiMode()==1? "EleBrake" : "AUX"); // P8
     default: return "N/A";
   }
 }
@@ -143,10 +130,14 @@ static void getActiveRelayStatus(String& out){
         case R_LEFT:   out = "LEFT";  return;
         case R_RIGHT:  out = "RIGHT"; return;
         case R_BRAKE:  out = "BRAKE"; return;
-        case R_TAIL:   out = "TAIL";  return;
+        case R_TAIL:   out = (getUiMode()==1? "REV" : "TAIL");  return;
         case R_MARKER: out = "MARK";  return;
-        case R_AUX:    out = "AUX";   return;
+        case R_AUX:    out = (getUiMode()==1? "EleBrake" : "AUX"); return;
       }
+    }
+    // Special-case RV mode brake mapping: both left & right on implies BRAKE
+    if (getUiMode() == 1 && g_relay_on[R_LEFT] && g_relay_on[R_RIGHT] && !g_relay_on[R_TAIL] && !g_relay_on[R_MARKER] && !g_relay_on[R_AUX]) {
+      out = "BRAKE"; return;
     }
     out = "RF"; return;
   }
@@ -197,6 +188,9 @@ void DisplayUI::begin(Preferences& p){
   // Apply persisted brightness
   uint8_t bri = _prefs->getUChar(_kBright, 255);
   if (_setBrightness) _setBrightness(bri);
+
+  // Load persisted UI mode (default HD)
+  _mode = _prefs->getUChar(KEY_UI_MODE, 0);
 
   // Splash
   _tft->fillScreen(ST77XX_BLACK);
@@ -270,19 +264,19 @@ void DisplayUI::drawFaultTicker(bool force){
 void DisplayUI::showStatus(const Telemetry& t){
   // Layout constants for targeted clears
   const int W = 160;
-  const int yLoad   = 6;   const int hLoad   = 18;   // size=2 text (~16 px high)
-  const int yActive = 26;  const int hActive = 18;   // size 1 or 2
-  const int ySwitch = 44;  const int hSwitch = 12;
-  const int ySrcV   = 58;  const int hSrcV   = 12;
+  // Top MODE row (approx 1.5x via size=2), then Load and Active also at ~1.5x
+  const int yMode   = 6;    const int hMode   = 18;   // size=2 text (~16 px high)
+  const int yLoad   = yMode + hMode + 2;   const int hLoad   = 18;   // size=2
+  const int yActive = yLoad + hLoad + 2;   const int hActive = 18;   // size 1 or 2
+  const int ySrcV   = yActive + hActive + 2;  const int hSrcV   = 12;
   // 12V status line sits below InputV
   const int y12     = ySrcV + hSrcV + 2; const int h12 = 12;
   // move LVP display a bit further down to avoid overlap
   const int yLvp    = y12 + h12 + 2;  const int hLvp    = 12;
-  const int yHint   = 100;  const int hHint   = 12;
+  const int yHint   = 114;  const int hHint   = 12;
 
   static bool s_inited = false;
   static String s_prevActive;
-  static String s_prevSwitch;
   static uint32_t s_prevFaultMask = 0;
 
   // ========== NEW: force full repaint request ==========
@@ -294,13 +288,24 @@ void DisplayUI::showStatus(const Telemetry& t){
 
   // Precompute strings for diff
   String activeStr; getActiveRelayStatus(activeStr);
-  String switchStr = String("Switch: ") + rotaryLabel();
 
   // First-time: full draw
   if (!s_inited) {
     _tft->fillScreen(ST77XX_BLACK);
+    // Line 1: MODE (top)
+    {
+      bool selected = (_homeFocus == 1);
+      uint16_t bg = selected ? ST77XX_GREEN : ST77XX_BLACK;
+      uint16_t fg = ST77XX_WHITE;
+      _tft->fillRect(0, yMode-2, W, hMode, bg);
+      _tft->setTextSize(2);
+      _tft->setTextColor(fg, bg);
+      _tft->setCursor(4, yMode);
+      _tft->print("MODE: ");
+      _tft->print(_mode ? "RV" : "HD");
+    }
 
-    // Line 1: Load
+    // Line 2: Load
     _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     _tft->setTextSize(2);
     _tft->setCursor(4, yLoad);
@@ -319,24 +324,21 @@ void DisplayUI::showStatus(const Telemetry& t){
       _tft->print(line);
     }
 
-    // Line 2.5: Switch
-    _tft->setTextSize(1);
-    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-    _tft->setCursor(4, ySwitch);
-    _tft->print(switchStr);
-
-    // Line 3: SrcV
-    _tft->setCursor(4, ySrcV);
+  // Line 4: SrcV (reset text size to 1)
+  _tft->setTextSize(1);
+  _tft->setCursor(4, ySrcV);
     if (isnan(t.srcV)) _tft->print("InputV:  N/A");
     else               _tft->printf("InputV: %4.2f V", t.srcV);
 
-    // Line 3.5: 12V enable status
+    // Line 4.5: 12V enable status
+    _tft->setTextSize(1);
     _tft->setCursor(4, y12);
     bool en = relayIsOn(R_ENABLE);
     _tft->print("12V sys: "); _tft->print(en?"ENABLED":"DISABLED");
 
-    // Line 4: LVP
-    _tft->setCursor(4, yLvp);
+  // Line 5: LVP
+  _tft->setTextSize(1);
+  _tft->setCursor(4, yLvp);
     bool bypass = _getLvpBypass ? _getLvpBypass() : false;
     if (bypass) {
       _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
@@ -347,16 +349,16 @@ void DisplayUI::showStatus(const Telemetry& t){
       _tft->setCursor(4, yLvp); _tft->print("LVP : ");
       _tft->print(t.lvpLatched? "ACTIVE":"ok");
     }
+    // (MODE line already drawn at top)
 
-    // Footer
-    _tft->setCursor(4, yHint);
-    _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-    _tft->print("OK=Menu  BACK=Home");
+  // Footer
+  _tft->setCursor(4, yHint);
+  _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+  _tft->print("OK=Menu  BACK=Home");
 
     drawFaultTicker(true);
 
     s_prevActive = activeStr;
-    s_prevSwitch = switchStr;
     s_prevFaultMask = _faultMask;
 
     _last = t;
@@ -368,6 +370,18 @@ void DisplayUI::showStatus(const Telemetry& t){
   // --- Incremental updates (no full-screen clears) ---
 
   // Load A changed?
+  // MODE line diff (mode or focus changed)
+  static uint8_t s_prevMode = 255; static int s_prevFocus = -1;
+  if (s_prevMode != _mode || s_prevFocus != _homeFocus) {
+    uint16_t bg = (_homeFocus==1)? ST77XX_GREEN : ST77XX_BLACK;
+    _tft->fillRect(0, yMode-2, W, hMode, bg);
+    _tft->setTextSize(2);
+    _tft->setTextColor(ST77XX_WHITE, bg);
+    _tft->setCursor(4, yMode);
+    _tft->print("MODE: "); _tft->print(_mode?"RV":"HD");
+    s_prevMode = _mode; s_prevFocus = _homeFocus;
+  }
+
   if ((isnan(t.loadA) != isnan(_last.loadA)) ||
       (!isnan(t.loadA) && fabsf(t.loadA - _last.loadA) > 0.02f)) {
     _tft->fillRect(0, yLoad-2, W, hLoad, ST77XX_BLACK);
@@ -392,15 +406,6 @@ void DisplayUI::showStatus(const Telemetry& t){
     s_prevActive = activeStr;
   }
 
-  // Switch line changed?
-  if (switchStr != s_prevSwitch) {
-    _tft->fillRect(0, ySwitch-2, W, hSwitch, ST77XX_BLACK);
-    _tft->setTextSize(1);
-    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-    _tft->setCursor(4, ySwitch);
-    _tft->print(switchStr);
-    s_prevSwitch = switchStr;
-  }
 
   // InputV changed?
   if ((isnan(t.srcV) != isnan(_last.srcV)) ||
@@ -408,12 +413,13 @@ void DisplayUI::showStatus(const Telemetry& t){
   // clear both InputV and the 12V status line below it
   _tft->fillRect(0, ySrcV-2, W, (y12 + h12) - (ySrcV-2), ST77XX_BLACK);
     _tft->setTextSize(1);
-    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+  _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     _tft->setCursor(4, ySrcV);
     if (isnan(t.srcV)) _tft->print("InputV:  N/A");
     else               _tft->printf("InputV: %4.2f V", t.srcV);
     // redraw 12V line as well
-    _tft->setCursor(4, y12);
+  _tft->setTextSize(1);
+  _tft->setCursor(4, y12);
     bool en = relayIsOn(R_ENABLE);
     _tft->print("12V sys: "); _tft->print(en?"ENABLED":"DISABLED");
   }
@@ -425,7 +431,7 @@ void DisplayUI::showStatus(const Telemetry& t){
     if (en != prev12) {
       // clear the area and redraw the 12V status
       _tft->fillRect(0, y12-2, W, h12+2, ST77XX_BLACK);
-      _tft->setTextSize(1);
+  _tft->setTextSize(1);
       _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
       _tft->setCursor(4, y12);
       _tft->print("12V sys: "); _tft->print(en?"ENABLED":"DISABLED");
@@ -439,7 +445,7 @@ void DisplayUI::showStatus(const Telemetry& t){
     bool bypass = _getLvpBypass ? _getLvpBypass() : false;
     if ((t.lvpLatched != _last.lvpLatched) || (bypass != prevBypass)) {
       _tft->fillRect(0, yLvp-2, W, hLvp, ST77XX_BLACK);
-      _tft->setTextSize(1);
+  _tft->setTextSize(1);
       if (bypass) {
         _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
         _tft->setCursor(4, yLvp); _tft->print("LVP : BYPASS");
@@ -473,6 +479,8 @@ void DisplayUI::drawMenu(){
   const int rows = 8;
   const int y0   = 8;
   const int rowH = 12;
+  // Ensure menu uses size 1 text regardless of prior Home text size
+  _tft->setTextSize(1);
 
   static int menuTop = 0;      // first visible index
   static int prevTop = -1;     // previously drawn top
@@ -485,6 +493,7 @@ void DisplayUI::drawMenu(){
     int y = y0 + (i - menuTop) * rowH;
     uint16_t bg = sel ? ST77XX_BLUE : ST77XX_BLACK;
     _tft->fillRect(0, y-2, 160, rowH, bg);
+    _tft->setTextSize(1);
     _tft->setTextColor(ST77XX_WHITE, bg);
     _tft->setCursor(6, y);
     _tft->print(kMenuItems[i]);
@@ -561,8 +570,18 @@ void DisplayUI::tick(const Telemetry& t){
     if (ok)  { handleMenuSelect(_menuIdx); _inMenu = false; _needRedraw = true; }
     if (back){ _inMenu = false; _needRedraw = true; }
   } else {
-    if (ok)  { _menuIdx = 0; _inMenu = true; _needRedraw = true; }
+    if (ok)  {
+      if (_homeFocus == 1) { toggleMode(); _needRedraw = true; }
+      else { _menuIdx = 0; _inMenu = true; _needRedraw = true; }
+    }
     if (back){ _needRedraw = true; }
+    if (d) {
+      // Toggle focus between none(0) and MODE(1)
+      _homeFocus = (_homeFocus + (d>0?1:-1));
+      if (_homeFocus < 0) _homeFocus = 1;
+      if (_homeFocus > 1) _homeFocus = 0;
+      _needRedraw = true;
+    }
   }
 
   // ========== NEW: if we just exited menu/settings, force full home redraw ==========
@@ -604,30 +623,60 @@ void DisplayUI::tick(const Telemetry& t){
   }
 }
 
+// Persist and toggle mode helpers
+void DisplayUI::saveMode(uint8_t m){ if (_prefs) _prefs->putUChar(KEY_UI_MODE, m); }
+void DisplayUI::toggleMode(){ _mode = (_mode==0)?1:0; saveMode(_mode); }
+
 // ================================================================
 // actions & sub UIs
 // ================================================================
 void DisplayUI::handleMenuSelect(int idx){
   switch(idx){
-    case 0: wifiScanAndConnectUI(); break;
-    case 1: wifiForget(); break;
-    case 2: runOta(); break;
-    case 3: adjustBrightness(); break;
-    case 4: adjustLvCutoff(); break;
-    case 5: toggleLvpBypass(); break;
-    case 6: adjustOcpLimit(); break;
-    case 7: if(_scanAll) _scanAll(); break;
-    case 8: {
+    case 0: if(_scanAll) _scanAll(); break;                 // Scan All Outputs
+    case 1: adjustLvCutoff(); break;                        // Set LVP Cutoff
+    case 2: toggleLvpBypass(); break;                       // LVP Bypass
+    case 3: adjustOcpLimit(); break;                        // Set OCP Limit
+    case 4: {                                               // 12V System
+      // 12V System toggle UI
+      while(true) {
+        _tft->fillScreen(ST77XX_BLACK);
+        _tft->setTextSize(1);
+        _tft->setCursor(6,10); _tft->println("12V System");
+        bool en = relayIsOn(R_ENABLE);
+        _tft->setCursor(6,30); _tft->print("State: "); _tft->print(en?"ENABLED":"DISABLED");
+        _tft->setCursor(6,56); _tft->print("OK=Toggle  BACK=Exit");
+        if (okPressed()) {
+          if (en) relayOff(R_ENABLE); else relayOn(R_ENABLE);
+          // brief feedback
+          _tft->fillRect(6,30,140,12,ST77XX_BLACK);
+          _tft->setCursor(6,30); _tft->print("Toggled");
+          delay(350);
+        }
+        if (backPressed()) break;
+        delay(20);
+      }
+      g_forceHomeFull = true;
+    } break;
+    case 5: {                                               // Learn RF Button
       // RF Learn (simple modal)
       int sel = 0, lastSel = -1;
       _tft->fillScreen(ST77XX_BLACK);
+      _tft->setTextSize(1);
       _tft->setCursor(6,8);  _tft->print("Learn RF for:");
       _tft->setCursor(6,44); _tft->print("OK=Start  BACK=Exit");
 
       auto drawSel = [&](int s){
         _tft->fillRect(0,20,160,16,ST77XX_BLACK);
         _tft->setCursor(6,24);
-        _tft->print(s==0?"LEFT":s==1?"RIGHT":s==2?"BRAKE":s==3?"TAIL":s==4?"MARKER":"AUX");
+        if (s==3) {
+          _tft->print(getUiMode()==1?"REV":"TAIL");
+        } else if (s==4) {
+          _tft->print("MARKER");
+        } else if (s==5) {
+          _tft->print(getUiMode()==1?"EleBrake":"AUX");
+        } else {
+          _tft->print(s==0?"LEFT":s==1?"RIGHT":s==2?"BRAKE":"?");
+        }
       };
 
       drawSel(sel);
@@ -671,9 +720,10 @@ void DisplayUI::handleMenuSelect(int idx){
         delay(12);
       }
     } break;
-    case 9: {
+    case 6: {                                               // Clear RF Remotes
       // Clear RF Remotes (confirmation)
       _tft->fillScreen(ST77XX_BLACK);
+  _tft->setTextSize(1);
       _tft->setCursor(6,10); _tft->println("Clear RF Remotes");
       _tft->setCursor(6,26); _tft->println("Erase all learned");
       _tft->setCursor(6,38); _tft->println("remotes from memory?");
@@ -684,34 +734,11 @@ void DisplayUI::handleMenuSelect(int idx){
         delay(10);
       }
     } break;
-    case 10: // About
-      _tft->fillScreen(ST77XX_BLACK);
-      _tft->setCursor(6,10);
-      _tft->println("Swanger Innovations\nTLTB");
-      _tft->setCursor(6,36); _tft->println("BACK=Exit");
-      while(!backPressed()) delay(10);
-      break;
-    case 11: {
-      // 12V System toggle UI
-      while(true) {
-        _tft->fillScreen(ST77XX_BLACK);
-        _tft->setCursor(6,10); _tft->println("12V System");
-        bool en = relayIsOn(R_ENABLE);
-        _tft->setCursor(6,30); _tft->print("State: "); _tft->print(en?"ENABLED":"DISABLED");
-        _tft->setCursor(6,56); _tft->print("OK=Toggle  BACK=Exit");
-        if (okPressed()) {
-          if (en) relayOff(R_ENABLE); else relayOn(R_ENABLE);
-          // brief feedback
-          _tft->fillRect(6,30,140,12,ST77XX_BLACK);
-          _tft->setCursor(6,30); _tft->print("Toggled");
-          delay(350);
-        }
-        if (backPressed()) break;
-        delay(20);
-      }
-      g_forceHomeFull = true;
-    } break;
-    case 12: showSystemInfo(); break;
+    case 7: adjustBrightness(); break;                      // Brightness
+    case 8: wifiScanAndConnectUI(); break;                  // Wi-Fi Connect
+    case 9: wifiForget(); break;                            // Wi-Fi Forget
+    case 10: runOta(); break;                               // OTA Update
+    case 11: showSystemInfo(); break;                       // System Info
   }
 }
 
@@ -720,6 +747,7 @@ void DisplayUI::saveBrightness(uint8_t v){ if(_prefs) _prefs->putUChar(_kBright,
 void DisplayUI::saveLvCut(float v){ if(_prefs) _prefs->putFloat(_kLvCut, v); }
 
 void DisplayUI::adjustBrightness(){
+  _tft->setTextSize(1);
   uint8_t v=_prefs->getUChar(_kBright, 255);
   _tft->fillScreen(ST77XX_BLACK); _tft->setCursor(6,10); _tft->println("Brightness");
   _tft->setCursor(6,28); _tft->printf("%3u/255", v);
@@ -736,6 +764,7 @@ void DisplayUI::adjustBrightness(){
 }
 
 void DisplayUI::adjustLvCutoff(){
+  _tft->setTextSize(1);
   float v=_prefs->getFloat(_kLvCut, 15.5f);
   _tft->fillScreen(ST77XX_BLACK); _tft->setCursor(6,10); _tft->println("Set LVP Cutoff (V)");
   while(true){
@@ -749,6 +778,7 @@ void DisplayUI::adjustLvCutoff(){
 }
 
 void DisplayUI::adjustOcpLimit(){
+  _tft->setTextSize(1);
   float cur = _prefs->getFloat(KEY_OCP, 20.0f);
   _tft->fillScreen(ST77XX_BLACK); _tft->setCursor(6,10); _tft->println("Set OCP (A)");
   while(true){
@@ -769,6 +799,7 @@ void DisplayUI::toggleLvpBypass(){
 
   // Brief confirmation splash (short toast), then return.
   _tft->fillScreen(ST77XX_BLACK);
+  _tft->setTextSize(1);
   _tft->setCursor(6,10); _tft->println("LVP Bypass");
   _tft->setCursor(6,28); _tft->print("State: ");
   _tft->print(newState ? "ON" : "OFF");
@@ -783,6 +814,7 @@ void DisplayUI::toggleLvpBypass(){
 // ================================================================
 void DisplayUI::showScanBegin() {
   _tft->fillScreen(ST77XX_BLACK);
+  _tft->setTextSize(1);
   _tft->setCursor(6,10);
   _tft->println("Scanning relays...");
   _tft->setCursor(6, 116); _tft->print("BACK=Exit");
@@ -836,11 +868,13 @@ int DisplayUI::listPicker(const char* title, const char** items, int count, int 
 
 int DisplayUI::listPickerDynamic(const char* title, std::function<const char*(int)> get, int count, int startIdx){
   const int rows = 8, y0 = 18, rowH = 12;
+  _tft->setTextSize(1);
   int idx = startIdx < 0 ? 0 : (startIdx >= count ? count - 1 : startIdx);
   int top = 0;
 
   _tft->fillScreen(ST77XX_BLACK);
   _tft->setTextColor(ST77XX_CYAN, ST77XX_BLACK);
+  _tft->setTextSize(1);
   _tft->setCursor(4,4); _tft->print(title);
 
   _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
@@ -853,6 +887,7 @@ int DisplayUI::listPickerDynamic(const char* title, std::function<const char*(in
     if (y < y0 || y >= y0 + rows * rowH) return;
     uint16_t bg = sel ? ST77XX_BLUE : ST77XX_BLACK;
     _tft->fillRect(0, y - 1, 160, rowH, bg);
+  _tft->setTextSize(1);
     _tft->setTextColor(ST77XX_WHITE, bg);
     _tft->setCursor(6, y);
     const char* s = get(i);
@@ -1003,6 +1038,7 @@ String DisplayUI::textInput(const char* title, const String& initial, int maxLen
 // Wi-Fi flow
 void DisplayUI::wifiScanAndConnectUI(){
   _tft->fillScreen(ST77XX_BLACK);
+  _tft->setTextSize(1);
   _tft->setCursor(6,8);  _tft->println("Wi-Fi Connect");
   _tft->setCursor(6,22); _tft->println("Scanning...");
 
@@ -1026,6 +1062,7 @@ void DisplayUI::wifiScanAndConnectUI(){
   if (!open) pass = textInput("Password", "", 63, "abc/ABC/123/sym  OK=sel  BACK=del");
 
   _tft->fillScreen(ST77XX_BLACK);
+  _tft->setTextSize(1);
   _tft->setCursor(6,8); _tft->print("Connecting to "); _tft->println(ssid);
   WiFi.begin(ssid.c_str(), pass.c_str());
 
@@ -1045,6 +1082,7 @@ void DisplayUI::wifiScanAndConnectUI(){
 
 void DisplayUI::wifiForget(){
   _tft->fillScreen(ST77XX_BLACK);
+  _tft->setTextSize(1);
   _tft->setCursor(6,10); _tft->println("Wi-Fi Forget...");
   if (_prefs) { _prefs->remove(_kSsid); _prefs->remove(_kPass); }
   WiFi.disconnect(true, true);
@@ -1057,56 +1095,30 @@ void DisplayUI::wifiForget(){
 // OTA
 void DisplayUI::runOta(){
   _tft->fillScreen(ST77XX_BLACK);
+  _tft->setTextSize(1);
   _tft->setCursor(6,10); _tft->println("OTA Update");
 
-  String url = _prefs ? _prefs->getString(OTA_URL_KEY, "") : "";
-  if (url.length()==0) {
-    url = textInput("Set OTA URL", "http://", 120, "Grid keyboard: OK=add, BACK=del, done");
-    if (url.length()==0){ _tft->setCursor(6,28); _tft->println("No URL set."); delay(700); g_forceHomeFull = true; return; }
-    if (_prefs) _prefs->putString(OTA_URL_KEY, url);
+  Ota::Callbacks cb;
+  cb.onStatus = [&](const char* s){
+    // Show status/messages at y=28 or y=92 for final
+    _tft->setCursor(6,28); _tft->fillRect(6,28,148,12,ST77XX_BLACK);
+    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    _tft->print(s);
+  };
+  cb.onProgress = [&](size_t w, size_t t){
+    _tft->fillRect(6,60,148,10,ST77XX_BLACK);
+    _tft->setCursor(6,60);
+    if (t) _tft->printf("%u/%u", (unsigned)w, (unsigned)t);
+    else   _tft->printf("%u", (unsigned)w);
+  };
+
+  // Use default repo from build flag OTA_REPO; pass nullptr to use fallback
+  bool ok = Ota::updateFromGithubLatest(nullptr, cb);
+  if (!ok) {
+    _tft->setCursor(6,92); _tft->println("OTA failed");
+    delay(900);
+    g_forceHomeFull = true;
   }
-
-  if (WiFi.status()!=WL_CONNECTED) { _tft->setCursor(6,28); _tft->println("Wi-Fi not connected"); delay(700); g_forceHomeFull = true; return; }
-
-  HTTPClient http; http.setTimeout(8000);
-  if (!http.begin(url)) { _tft->setCursor(6,46); _tft->println("Bad URL"); delay(700); g_forceHomeFull = true; return; }
-  int code = http.GET();
-  if (code != HTTP_CODE_OK) { _tft->setCursor(6,46); _tft->printf("HTTP %d\n", code); http.end(); delay(800); g_forceHomeFull = true; return; }
-
-  int len = http.getSize();
-  WiFiClient *stream = http.getStreamPtr();
-
-  if (!Update.begin(len > 0 ? len : UPDATE_SIZE_UNKNOWN)) { _tft->setCursor(6,62); _tft->println("Update.begin fail"); http.end(); delay(800); g_forceHomeFull = true; return; }
-
-  _tft->setCursor(6,46); _tft->println("Downloading...");
-  size_t written = 0; uint8_t buff[2048]; uint32_t lastDraw=0;
-  while (http.connected() && (len > 0 || len == -1)) {
-    size_t avail = stream->available();
-    if (avail) {
-      int c = stream->readBytes(buff, (avail > sizeof(buff)) ? sizeof(buff) : avail);
-      if (c < 0) break;
-      if (Update.write(buff, c) != (size_t)c) { _tft->setCursor(6,62); _tft->println("Write error"); Update.abort(); http.end(); delay(800); g_forceHomeFull = true; return; }
-      written += c;
-      uint32_t now = millis();
-      if (now - lastDraw > 120) {
-        _tft->fillRect(6,60,148,10,ST77XX_BLACK);
-        _tft->setCursor(6,60);
-        if (len > 0) _tft->printf("%u/%d", (unsigned)written, len);
-        else         _tft->printf("%u", (unsigned)written);
-        lastDraw = now;
-      }
-    } else {
-      delay(1);
-    }
-    if (len > 0) len -= avail;
-  }
-  http.end();
-
-  if (!Update.end(true)) { _tft->setCursor(6,76); _tft->printf("End err %u", Update.getError()); delay(1000); g_forceHomeFull = true; return; }
-
-  _tft->setCursor(6,76); _tft->println("OTA OK. Reboot...");
-  delay(700);
-  ESP.restart();
 }
 
 // ================================================================
@@ -1114,11 +1126,17 @@ void DisplayUI::runOta(){
 // ================================================================
 void DisplayUI::showSystemInfo(){
   _tft->fillScreen(ST77XX_BLACK);
+  _tft->setTextSize(1);
   _tft->setCursor(4, 6);  _tft->setTextColor(ST77XX_CYAN); _tft->println("System Info & Faults");
   _tft->setTextColor(ST77XX_WHITE);
 
   int y=22;
   auto line=[&](const char* k, const char* v){ _tft->setCursor(4,y); _tft->print(k); _tft->print(": "); _tft->println(v); y+=12; };
+
+  // Firmware version string: pull from NVS (written by OTA on success)
+  String ver = _prefs ? _prefs->getString(KEY_FW_VER, "") : String("");
+  if (ver.length() == 0) ver = "unknown";
+  line("Firmware", ver.c_str());
 
   String wifi = (WiFi.status()==WL_CONNECTED) ? String("OK ") + WiFi.localIP().toString() : "not linked";
   line("Wi-Fi", wifi.c_str());

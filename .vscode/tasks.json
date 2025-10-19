@@ -297,6 +297,62 @@
 				"$gcc"
 			],
 			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build esp32s3-devkitc1",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc-1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build with Buzzer",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PlatformIO: Build with Buzzer 2",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
 		}
 	]
 }

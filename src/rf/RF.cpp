@@ -4,6 +4,8 @@
 #include "relays.hpp"
 #include <Preferences.h>
 #include <RCSwitch.h>
+#include "buzzer.hpp"
+#include "prefs.hpp"
 
 #ifndef PIN_RF_DATA
 #  error "Define PIN_RF_DATA in pins.hpp for SYN480R DATA input"
@@ -131,15 +133,38 @@ namespace {
   // Activate relay with exclusivity
   void handleTrigger(uint8_t rindex) {
     if (rindex >= (uint8_t)R_COUNT) return;
+    // Mode-aware behavior: if RV mode and BRAKE is requested, map to LEFT+RIGHT
+    bool isBrake = (rindex == (uint8_t)R_BRAKE);
+    bool rvMode = (getUiMode() == 1);
+
+    if (rvMode && isBrake) {
+      // Toggle behavior for RV brake: press again turns both off
+      bool bothOn = relayIsOn(R_LEFT) && relayIsOn(R_RIGHT);
+      if (activeRelay == (int)R_BRAKE || bothOn) {
+        relayOff(R_LEFT); relayOff(R_RIGHT);
+        activeRelay = -1;
+        Buzzer::beep();
+        return;
+      }
+      // Otherwise, activate RV brake mapping
+      for (int i = 0; i < 6; ++i) relayOff((RelayIndex)i);
+      relayOn(R_LEFT); relayOn(R_RIGHT);
+      activeRelay = (uint8_t)R_BRAKE;
+      Buzzer::beep();
+      return;
+    }
+
+    // Normal single-channel behavior
     if (activeRelay == rindex) {
       relayOff((RelayIndex)rindex);
       activeRelay = -1;
+      Buzzer::beep();
       return;
     }
-    // Turn off only the primary 6 user relays; keep R_ENABLE (12V) intact
     for (int i = 0; i < 6; ++i) relayOff((RelayIndex)i);
     relayOn((RelayIndex)rindex);
     activeRelay = rindex;
+    Buzzer::beep();
   }
 
 } // namespace
