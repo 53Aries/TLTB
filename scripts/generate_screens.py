@@ -44,6 +44,18 @@ def draw_text(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: int, text:
     img.paste(sprite, (x, y), sprite)
 
 
+def measure_text(text: str, size: int = 1):
+    """Return (width, height) for given text at scaling factor using the base bitmap font."""
+    if not text:
+        return (0, 0)
+    tmp = Image.new('L', (1, 1))
+    td = ImageDraw.Draw(tmp)
+    bbox = td.textbbox((0, 0), text, font=BASE_FONT)
+    w = max(1, bbox[2] - bbox[0]) * max(1, size)
+    h = max(1, bbox[3] - bbox[1]) * max(1, size)
+    return (w, h)
+
+
 def save(img: Image.Image, name: str, scale: int = 1):
     p = out_dir / f"{name}.png"
     if scale and scale > 1:
@@ -75,13 +87,16 @@ def screen_home(mode: str = 'HD', load_a: float = 0.00, active: str = 'RF', src_
 
     # Load
     draw_text(img, d, 4, yLoad, "Load:", size=2)
-    draw_text(img, d, 70, yLoad, f"{load_a:4.2f} A", size=2)
+    load_val = f"{load_a:4.2f} A"
+    lv_w, _ = measure_text(load_val, size=2)
+    draw_text(img, d, max(4, W - 4 - lv_w), yLoad, load_val, size=2)
 
     # Active
     draw_text(img, d, 4, yActive, "Active:", size=2)
     # try to keep within width (160)
     label = active
-    draw_text(img, d, 88, yActive, label, size=2)
+    av_w, _ = measure_text(label, size=2)
+    draw_text(img, d, max(4, W - 4 - av_w), yActive, label, size=2)
 
     # InputV
     draw_text(img, d, 4, ySrcV, f"InputV: {src_v:4.2f} V", size=1)
