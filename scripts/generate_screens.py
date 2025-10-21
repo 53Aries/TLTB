@@ -76,7 +76,7 @@ def save(img: Image.Image, name: str, scale: int = 1):
 
 # ---------- Specific screens ----------
 
-def screen_home(mode: str = 'HD', load_a: float = 0.00, active: str = 'RF', src_v: float = 12.56,
+def screen_home(mode: str = 'HD', load_a: float = 0.00, active: str = 'RF',
                 sys12_enabled: bool = True, lvp_bypass: bool = False, lvp_latched: bool = False,
                 fault: str | None = None, focus_mode: bool = False):
     img = Image.new('RGB', (W, H), COLORS['BLACK'])
@@ -86,8 +86,8 @@ def screen_home(mode: str = 'HD', load_a: float = 0.00, active: str = 'RF', src_
     yMode, hMode = 6, 18
     yLoad, hLoad = yMode + hMode + 2, 18
     yActive, hActive = yLoad + hLoad + 2, 18
-    ySrcV, hSrcV = yActive + hActive + 2, 12
-    y12, h12 = ySrcV + hSrcV + 2, 12
+    # InputV removed; place 12V directly below Active
+    y12, h12 = yActive + hActive + 2, 12
     yLvp, hLvp = y12 + h12 + 2, 12
     yHint, hHint = 114, 12
 
@@ -107,9 +107,6 @@ def screen_home(mode: str = 'HD', load_a: float = 0.00, active: str = 'RF', src_
     label = active
     av_w, _ = measure_text(label, size=2)
     draw_text(img, d, max(4, W - 4 - av_w), yActive, label, size=2)
-
-    # InputV
-    draw_text(img, d, 4, ySrcV, f"InputV: {src_v:4.2f} V", size=1)
 
     # 12V sys
     draw_text(img, d, 4, y12, f"12V sys: {'ENABLED' if sys12_enabled else 'DISABLED'}", size=1)
@@ -205,13 +202,13 @@ def screen_simple_title_body(title: str, lines: list[str]):
 
 def generate_all(scale: int = 1):
     # Home (HD)
-    save(screen_home(mode='HD', load_a=0.00, active='RF', src_v=12.56, sys12_enabled=True, lvp_bypass=False, lvp_latched=False), 'home_hd_idle', scale)
-    save(screen_home(mode='HD', load_a=3.42, active='LEFT', src_v=12.44, sys12_enabled=True, lvp_bypass=False, lvp_latched=False), 'home_hd_left', scale)
-    save(screen_home(mode='HD', load_a=1.02, active='BRAKE', src_v=12.20, sys12_enabled=True, lvp_bypass=False, lvp_latched=True), 'home_hd_brake_lvp', scale)
+    save(screen_home(mode='HD', load_a=0.00, active='RF', sys12_enabled=True, lvp_bypass=False, lvp_latched=False), 'home_hd_idle', scale)
+    save(screen_home(mode='HD', load_a=3.42, active='LEFT', sys12_enabled=True, lvp_bypass=False, lvp_latched=False), 'home_hd_left', scale)
+    save(screen_home(mode='HD', load_a=1.02, active='BRAKE', sys12_enabled=True, lvp_bypass=False, lvp_latched=True), 'home_hd_brake_lvp', scale)
 
     # Home (RV) with MODE focus
-    save(screen_home(mode='RV', load_a=0.55, active='RF', src_v=12.70, sys12_enabled=True, lvp_bypass=False, lvp_latched=False, focus_mode=True), 'home_rv_idle_focus', scale)
-    save(screen_home(mode='RV', load_a=2.10, active='BRAKE', src_v=12.38, sys12_enabled=True, lvp_bypass=False, lvp_latched=False), 'home_rv_brake', scale)
+    save(screen_home(mode='RV', load_a=0.55, active='RF', sys12_enabled=True, lvp_bypass=False, lvp_latched=False, focus_mode=True), 'home_rv_idle_focus', scale)
+    save(screen_home(mode='RV', load_a=2.10, active='BRAKE', sys12_enabled=True, lvp_bypass=False, lvp_latched=False), 'home_rv_brake', scale)
 
     # Menu
     save(screen_menu(selected=0), 'menu_top', scale)
