@@ -3,6 +3,7 @@
 # Output: docs/screens/*.png
 
 from PIL import Image, ImageDraw, ImageFont
+import argparse
 from pathlib import Path
 
 W, H = 160, 128
@@ -56,8 +57,10 @@ def draw_text(draw: ImageDraw.ImageDraw, x: int, y: int, text: str, color: str =
         draw.text((x, y), text, font=f, fill=COLORS[color])
 
 
-def save(img: Image.Image, name: str):
+def save(img: Image.Image, name: str, scale: int = 1):
     p = out_dir / f"{name}.png"
+    if scale and scale > 1:
+        img = img.resize((img.width * scale, img.height * scale), Image.NEAREST)
     img.save(p)
     return p
 
@@ -188,50 +191,50 @@ def screen_simple_title_body(title: str, lines: list[str]):
 
 # ---------- Batch generation ----------
 
-def generate_all():
+def generate_all(scale: int = 1):
     # Home (HD)
-    save(screen_home(mode='HD', load_a=0.00, active='RF', src_v=12.56, sys12_enabled=True, lvp_bypass=False, lvp_latched=False), 'home_hd_idle')
-    save(screen_home(mode='HD', load_a=3.42, active='LEFT', src_v=12.44, sys12_enabled=True, lvp_bypass=False, lvp_latched=False), 'home_hd_left')
-    save(screen_home(mode='HD', load_a=1.02, active='BRAKE', src_v=12.20, sys12_enabled=True, lvp_bypass=False, lvp_latched=True), 'home_hd_brake_lvp')
+    save(screen_home(mode='HD', load_a=0.00, active='RF', src_v=12.56, sys12_enabled=True, lvp_bypass=False, lvp_latched=False), 'home_hd_idle', scale)
+    save(screen_home(mode='HD', load_a=3.42, active='LEFT', src_v=12.44, sys12_enabled=True, lvp_bypass=False, lvp_latched=False), 'home_hd_left', scale)
+    save(screen_home(mode='HD', load_a=1.02, active='BRAKE', src_v=12.20, sys12_enabled=True, lvp_bypass=False, lvp_latched=True), 'home_hd_brake_lvp', scale)
 
     # Home (RV) with MODE focus
-    save(screen_home(mode='RV', load_a=0.55, active='RF', src_v=12.70, sys12_enabled=True, lvp_bypass=False, lvp_latched=False, focus_mode=True), 'home_rv_idle_focus')
-    save(screen_home(mode='RV', load_a=2.10, active='BRAKE', src_v=12.38, sys12_enabled=True, lvp_bypass=False, lvp_latched=False), 'home_rv_brake')
+    save(screen_home(mode='RV', load_a=0.55, active='RF', src_v=12.70, sys12_enabled=True, lvp_bypass=False, lvp_latched=False, focus_mode=True), 'home_rv_idle_focus', scale)
+    save(screen_home(mode='RV', load_a=2.10, active='BRAKE', src_v=12.38, sys12_enabled=True, lvp_bypass=False, lvp_latched=False), 'home_rv_brake', scale)
 
     # Menu
-    save(screen_menu(selected=0), 'menu_top')
-    save(screen_menu(selected=4), 'menu_mid')
+    save(screen_menu(selected=0), 'menu_top', scale)
+    save(screen_menu(selected=4), 'menu_mid', scale)
 
     # System Info
     save(screen_system_info(fw='v1.0.2', wifi='OK 192.168.1.23', lvp_bypass=False,
-                            faults=['INA226 load missing', 'Wi-Fi disconnected']), 'system_info')
+                            faults=['INA226 load missing', 'Wi-Fi disconnected']), 'system_info', scale)
 
     # Adjusters and simple flows
-    save(screen_simple_title_body('Brightness', ['128/255', '', 'OK=Save  BACK=Cancel']), 'brightness')
-    save(screen_simple_title_body('Set LVP Cutoff (V)', ['15.50', '', 'OK=Save  BACK=Cancel']), 'lvp_cutoff')
-    save(screen_simple_title_body('Set OCP (A)', ['20.0', '', 'OK=Save  BACK=Cancel']), 'ocp_limit')
+    save(screen_simple_title_body('Brightness', ['128/255', '', 'OK=Save  BACK=Cancel']), 'brightness', scale)
+    save(screen_simple_title_body('Set LVP Cutoff (V)', ['15.50', '', 'OK=Save  BACK=Cancel']), 'lvp_cutoff', scale)
+    save(screen_simple_title_body('Set OCP (A)', ['20.0', '', 'OK=Save  BACK=Cancel']), 'ocp_limit', scale)
 
-    save(screen_simple_title_body('LVP Bypass', ['State: ON', '', 'OK=Toggle  BACK=Exit']), 'lvp_bypass_on')
-    save(screen_simple_title_body('LVP Bypass', ['State: OFF', '', 'OK=Toggle  BACK=Exit']), 'lvp_bypass_off')
+    save(screen_simple_title_body('LVP Bypass', ['State: ON', '', 'OK=Toggle  BACK=Exit']), 'lvp_bypass_on', scale)
+    save(screen_simple_title_body('LVP Bypass', ['State: OFF', '', 'OK=Toggle  BACK=Exit']), 'lvp_bypass_off', scale)
 
-    save(screen_simple_title_body('12V System', ['State: ENABLED', '', 'OK=Toggle  BACK=Exit']), 'sys12_enabled')
-    save(screen_simple_title_body('12V System', ['State: DISABLED', '', 'OK=Toggle  BACK=Exit']), 'sys12_disabled')
+    save(screen_simple_title_body('12V System', ['State: ENABLED', '', 'OK=Toggle  BACK=Exit']), 'sys12_enabled', scale)
+    save(screen_simple_title_body('12V System', ['State: DISABLED', '', 'OK=Toggle  BACK=Exit']), 'sys12_disabled', scale)
 
-    save(screen_simple_title_body('Learn RF for:', ['LEFT', '', 'OK=Start  BACK=Exit']), 'rf_learn')
+    save(screen_simple_title_body('Learn RF for:', ['LEFT', '', 'OK=Start  BACK=Exit']), 'rf_learn', scale)
 
-    save(screen_simple_title_body('Clear RF Remotes', ['Erase all learned', 'remotes from memory?', '', 'OK=Erase  BACK=Cancel']), 'rf_clear_confirm')
+    save(screen_simple_title_body('Clear RF Remotes', ['Erase all learned', 'remotes from memory?', '', 'OK=Erase  BACK=Cancel']), 'rf_clear_confirm', scale)
 
-    save(screen_simple_title_body('Wi-Fi Connect', ['Scanning...']), 'wifi_scanning')
-    save(screen_simple_title_body('Wi-Fi Connect', ['Connecting to MySSID']), 'wifi_connecting')
+    save(screen_simple_title_body('Wi-Fi Connect', ['Scanning...']), 'wifi_scanning', scale)
+    save(screen_simple_title_body('Wi-Fi Connect', ['Connecting to MySSID']), 'wifi_connecting', scale)
 
-    save(screen_simple_title_body('Wi-Fi Forget...', ['Disconnect + erase creds', '', 'Done.']), 'wifi_forget')
+    save(screen_simple_title_body('Wi-Fi Forget...', ['Disconnect + erase creds', '', 'Done.']), 'wifi_forget', scale)
 
-    save(screen_simple_title_body('OTA Update', ['Ready', '', 'OK to start']), 'ota_idle')
-    save(screen_simple_title_body('OTA Update', ['Downloading...', '153600/921600']), 'ota_downloading')
+    save(screen_simple_title_body('OTA Update', ['Ready', '', 'OK to start']), 'ota_idle', scale)
+    save(screen_simple_title_body('OTA Update', ['Downloading...', '153600/921600']), 'ota_downloading', scale)
 
-    save(screen_simple_title_body('Scanning relays...', ['', '', '', 'BACK=Exit']), 'scan_begin')
-    save(screen_simple_title_body('Scan Result', ['Relay 1: OK', 'Relay 2: OK', 'Relay 3: OK']), 'scan_result')
-    save(screen_simple_title_body('Scan Done', ['All relays tested.']), 'scan_done')
+    save(screen_simple_title_body('Scanning relays...', ['', '', '', 'BACK=Exit']), 'scan_begin', scale)
+    save(screen_simple_title_body('Scan Result', ['Relay 1: OK', 'Relay 2: OK', 'Relay 3: OK']), 'scan_result', scale)
+    save(screen_simple_title_body('Scan Done', ['All relays tested.']), 'scan_done', scale)
 
     # OCP modal (approximate)
     img = Image.new('RGB', (W, H), COLORS['BLACK'])
@@ -241,9 +244,12 @@ def generate_all():
     draw_text(d, 16, 44, 'OCP latched. Press OK', size=1)
     draw_text(d, 16, 56, 'to acknowledge.', size=1)
     draw_text(d, 16, 76, 'OK=Acknowledge  BACK=Cancel', color='WHITE', size=1)
-    save(img, 'ocp_modal')
+    save(img, 'ocp_modal', scale)
 
 
 if __name__ == '__main__':
-    p = generate_all()
-    print(f"Screens generated in {out_dir.resolve()}")
+    parser = argparse.ArgumentParser(description='Generate TLTB UI screenshots (PNG).')
+    parser.add_argument('--scale', type=int, default=1, help='Integer scale factor for output images (e.g., 2 or 3).')
+    args = parser.parse_args()
+    p = generate_all(scale=max(1, int(args.scale)))
+    print(f"Screens generated in {out_dir.resolve()} (scale={max(1, int(args.scale))}x)")
