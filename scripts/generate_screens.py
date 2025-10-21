@@ -20,45 +20,50 @@ COLORS = {
     'DARKGREY':(66, 66, 66),
 }
 
-# Use PIL's built-in bitmap font for crisp 1-bit style text,
-# then scale the rendered text block with NEAREST for size=2.
-BASE_FONT = ImageFont.load_default()
+# Try to use a monospaced font; fall back to PIL default
+# This matches the very first implementation we used.
+def load_fonts():
+    try:
+        mono = ImageFont.truetype("DejaVuSansMono.ttf", 8)
+        mono2 = ImageFont.truetype("DejaVuSansMono.ttf", 16)
+        return mono, mono2
+    except Exception:
+        try:
+            cons = ImageFont.truetype("consola.ttf", 9)
+            cons2 = ImageFont.truetype("consola.ttf", 18)
+            return cons, cons2
+        except Exception:
+            f1 = ImageFont.load_default()
+            f2 = ImageFont.load_default()
+            return f1, f2
+
+FONT1, FONT2 = load_fonts()
 
 out_dir = Path("docs/screens")
 out_dir.mkdir(parents=True, exist_ok=True)
 
 
 def draw_text(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: int, text: str, color: str = 'WHITE', size: int = 1, bg: str | None = None):
-    # Render text to an RGBA sprite using the crisp bitmap font, then scale sprite if needed
     if not text:
         return
-    bbox = draw.textbbox((0, 0), text, font=BASE_FONT)
-    # Width/height from bbox; account for negative bearings by offsetting draw position
-    tw, th = (bbox[2] - bbox[0]), (bbox[3] - bbox[1])
-    tw = max(1, tw); th = max(1, th)
-    pad = max(1, size)  # small padding to avoid glyph ascender/descender clipping when scaled
-    sprite = Image.new('RGBA', (tw + pad * 2, th + pad * 2), (0, 0, 0, 0))
-    sd = ImageDraw.Draw(sprite)
-    sd.text((pad - bbox[0], pad - bbox[1]), text, font=BASE_FONT, fill=COLORS[color])
-    if size and size > 1:
-        sprite = sprite.resize((sprite.width * size, sprite.height * size), Image.NEAREST)
+    f = FONT2 if size == 2 else FONT1
     if bg is not None:
-        # background strip with a little extra headroom
-        bg_pad = max(2, size)
-        draw.rectangle([x, y - bg_pad, x + sprite.width + bg_pad, y + sprite.height], fill=COLORS[bg])
-    img.paste(sprite, (x, y), sprite)
+        tw = int(draw.textlength(text, font=f))
+        th = getattr(f, 'size', 8) + 2
+        draw.rectangle([x, y-2, x + tw + 2, y + th], fill=COLORS[bg])
+    draw.text((x, y), text, font=f, fill=COLORS[color])
 
 
 def measure_text(text: str, size: int = 1):
-    """Return (width, height) for given text at scaling factor using the base bitmap font."""
+    """Return (width, height) using the chosen FONT1/FONT2 (no sprite)."""
     if not text:
         return (0, 0)
     tmp = Image.new('L', (1, 1))
     td = ImageDraw.Draw(tmp)
-    bbox = td.textbbox((0, 0), text, font=BASE_FONT)
-    w = max(1, bbox[2] - bbox[0]) * max(1, size)
-    h = max(1, bbox[3] - bbox[1]) * max(1, size)
-    return (w, h)
+    f = FONT2 if size == 2 else FONT1
+    w = int(td.textlength(text, font=f))
+    h = getattr(f, 'size', 8) + 2
+    return (max(1, w), max(1, h))
 
 
 def save(img: Image.Image, name: str, scale: int = 1):
