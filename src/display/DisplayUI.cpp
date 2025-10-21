@@ -268,10 +268,8 @@ void DisplayUI::showStatus(const Telemetry& t){
   const int yMode   = 6;    const int hMode   = 18;   // size=2 text (~16 px high)
   const int yLoad   = yMode + hMode + 2;   const int hLoad   = 18;   // size=2
   const int yActive = yLoad + hLoad + 2;   const int hActive = 18;   // size 1 or 2
-  const int ySrcV   = yActive + hActive + 2;  const int hSrcV   = 12;
-  // 12V status line sits below InputV
-  const int y12     = ySrcV + hSrcV + 2; const int h12 = 12;
-  // move LVP display a bit further down to avoid overlap
+  // Removed InputV: place 12V line directly below Active
+  const int y12     = yActive + hActive + 2; const int h12 = 12;
   const int yLvp    = y12 + h12 + 2;  const int hLvp    = 12;
   const int yHint   = 114;  const int hHint   = 12;
 
@@ -324,19 +322,13 @@ void DisplayUI::showStatus(const Telemetry& t){
       _tft->print(line);
     }
 
-  // Line 4: SrcV (reset text size to 1)
-  _tft->setTextSize(1);
-  _tft->setCursor(4, ySrcV);
-    if (isnan(t.srcV)) _tft->print("InputV:  N/A");
-    else               _tft->printf("InputV: %4.2f V", t.srcV);
-
-    // Line 4.5: 12V enable status
+    // Line 4: 12V enable status (shifted up; InputV removed)
     _tft->setTextSize(1);
     _tft->setCursor(4, y12);
     bool en = relayIsOn(R_ENABLE);
     _tft->print("12V sys: "); _tft->print(en?"ENABLED":"DISABLED");
 
-  // Line 5: LVP
+  // Line 5: LVP (shifted up)
   _tft->setTextSize(1);
   _tft->setCursor(4, yLvp);
     bool bypass = _getLvpBypass ? _getLvpBypass() : false;
@@ -407,22 +399,7 @@ void DisplayUI::showStatus(const Telemetry& t){
   }
 
 
-  // InputV changed?
-  if ((isnan(t.srcV) != isnan(_last.srcV)) ||
-      (!isnan(t.srcV) && fabsf(t.srcV - _last.srcV) > 0.02f)) {
-  // clear both InputV and the 12V status line below it
-  _tft->fillRect(0, ySrcV-2, W, (y12 + h12) - (ySrcV-2), ST77XX_BLACK);
-    _tft->setTextSize(1);
-  _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-    _tft->setCursor(4, ySrcV);
-    if (isnan(t.srcV)) _tft->print("InputV:  N/A");
-    else               _tft->printf("InputV: %4.2f V", t.srcV);
-    // redraw 12V line as well
-  _tft->setTextSize(1);
-  _tft->setCursor(4, y12);
-    bool en = relayIsOn(R_ENABLE);
-    _tft->print("12V sys: "); _tft->print(en?"ENABLED":"DISABLED");
-  }
+  // InputV removed; no redraw block needed for it
 
   // 12V system state changed? redraw its line (covers cases where InputV didn't change)
   {
@@ -593,9 +570,7 @@ void DisplayUI::tick(const Telemetry& t){
 
   bool changedHome =
       (!_inMenu) && (
-        (isnan(t.srcV)  != isnan(_last.srcV))  ||
         (isnan(t.loadA) != isnan(_last.loadA)) ||
-        (!isnan(t.srcV)  && fabsf(t.srcV  - _last.srcV ) > 0.02f) ||
         (!isnan(t.loadA) && fabsf(t.loadA - _last.loadA) > 0.02f) ||
         (t.lvpLatched != _last.lvpLatched) ||
         _needRedraw
