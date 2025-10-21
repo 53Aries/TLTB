@@ -36,13 +36,16 @@ def draw_text(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: int, text:
     # Width/height from bbox; account for negative bearings by offsetting draw position
     tw, th = (bbox[2] - bbox[0]), (bbox[3] - bbox[1])
     tw = max(1, tw); th = max(1, th)
-    sprite = Image.new('RGBA', (tw, th), (0, 0, 0, 0))
+    pad = max(1, size)  # small padding to avoid glyph ascender/descender clipping when scaled
+    sprite = Image.new('RGBA', (tw + pad * 2, th + pad * 2), (0, 0, 0, 0))
     sd = ImageDraw.Draw(sprite)
-    sd.text((-bbox[0], -bbox[1]), text, font=BASE_FONT, fill=COLORS[color])
+    sd.text((pad - bbox[0], pad - bbox[1]), text, font=BASE_FONT, fill=COLORS[color])
     if size and size > 1:
         sprite = sprite.resize((sprite.width * size, sprite.height * size), Image.NEAREST)
     if bg is not None:
-        draw.rectangle([x, y-2, x + sprite.width + 2, y + sprite.height], fill=COLORS[bg])
+        # background strip with a little extra headroom
+        bg_pad = max(2, size)
+        draw.rectangle([x, y - bg_pad, x + sprite.width + bg_pad, y + sprite.height], fill=COLORS[bg])
     img.paste(sprite, (x, y), sprite)
 
 
