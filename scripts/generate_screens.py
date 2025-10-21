@@ -20,41 +20,28 @@ COLORS = {
     'DARKGREY':(66, 66, 66),
 }
 
-# Try to use a monospaced font; fall back to PIL default
-# Adafruit 5x7 isn't available here; this will be visually similar but not identical.
-def load_fonts():
-    try:
-        # Common on many systems
-        mono = ImageFont.truetype("DejaVuSansMono.ttf", 8)
-        mono2 = ImageFont.truetype("DejaVuSansMono.ttf", 16)
-        return mono, mono2
-    except Exception:
-        try:
-            # Windows Consolas fallback
-            cons = ImageFont.truetype("consola.ttf", 9)
-            cons2 = ImageFont.truetype("consola.ttf", 18)
-            return cons, cons2
-        except Exception:
-            f1 = ImageFont.load_default()
-            f2 = ImageFont.load_default()
-            return f1, f2
-
-FONT1, FONT2 = load_fonts()
+# Use PIL's built-in bitmap font for crisp 1-bit style text,
+# then scale the rendered text block with NEAREST for size=2.
+BASE_FONT = ImageFont.load_default()
 
 out_dir = Path("docs/screens")
 out_dir.mkdir(parents=True, exist_ok=True)
 
 
-def draw_text(draw: ImageDraw.ImageDraw, x: int, y: int, text: str, color: str = 'WHITE', size: int = 1, bg: str | None = None):
+def draw_text(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: int, text: str, color: str = 'WHITE', size: int = 1, bg: str | None = None):
+    # Render text to an RGBA sprite using the crisp bitmap font, then scale sprite if needed
+    if not text:
+        return
+    bbox = draw.textbbox((0, 0), text, font=BASE_FONT)
+    tw, th = (bbox[2] - bbox[0]), (bbox[3] - bbox[1])
+    sprite = Image.new('RGBA', (max(1, tw), max(1, th)), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(sprite)
+    sd.text((0, 0), text, font=BASE_FONT, fill=COLORS[color])
+    if size and size > 1:
+        sprite = sprite.resize((sprite.width * size, sprite.height * size), Image.NEAREST)
     if bg is not None:
-        # estimate text bbox to paint background strip
-        f = FONT2 if size == 2 else FONT1
-        tw, th = draw.textlength(text, font=f), f.size + 2
-        draw.rectangle([x, y-2, x + int(tw) + 2, y + int(th)], fill=COLORS[bg])
-        draw.text((x, y), text, font=f, fill=COLORS[color])
-    else:
-        f = FONT2 if size == 2 else FONT1
-        draw.text((x, y), text, font=f, fill=COLORS[color])
+        draw.rectangle([x, y-2, x + sprite.width + 2, y + sprite.height], fill=COLORS[bg])
+    img.paste(sprite, (x, y), sprite)
 
 
 def save(img: Image.Image, name: str, scale: int = 1):
@@ -84,37 +71,37 @@ def screen_home(mode: str = 'HD', load_a: float = 0.00, active: str = 'RF', src_
 
     # MODE line (size=2) with optional focus highlight
     bg = 'GREEN' if focus_mode else 'BLACK'
-    draw_text(d, 4, yMode, f"MODE: {mode}", color='WHITE', size=2, bg=bg)
+    draw_text(img, d, 4, yMode, f"MODE: {mode}", color='WHITE', size=2, bg=bg)
 
     # Load
-    draw_text(d, 4, yLoad, "Load:", size=2)
-    draw_text(d, 70, yLoad, f"{load_a:4.2f} A", size=2)
+    draw_text(img, d, 4, yLoad, "Load:", size=2)
+    draw_text(img, d, 70, yLoad, f"{load_a:4.2f} A", size=2)
 
     # Active
-    draw_text(d, 4, yActive, "Active:", size=2)
+    draw_text(img, d, 4, yActive, "Active:", size=2)
     # try to keep within width (160)
     label = active
-    draw_text(d, 88, yActive, label, size=2)
+    draw_text(img, d, 88, yActive, label, size=2)
 
     # InputV
-    draw_text(d, 4, ySrcV, f"InputV: {src_v:4.2f} V", size=1)
+    draw_text(img, d, 4, ySrcV, f"InputV: {src_v:4.2f} V", size=1)
 
     # 12V sys
-    draw_text(d, 4, y12, f"12V sys: {'ENABLED' if sys12_enabled else 'DISABLED'}", size=1)
+    draw_text(img, d, 4, y12, f"12V sys: {'ENABLED' if sys12_enabled else 'DISABLED'}", size=1)
 
     # LVP status
     if lvp_bypass:
-        draw_text(d, 4, yLvp, "LVP : BYPASS", color='YELLOW', size=1)
+        draw_text(img, d, 4, yLvp, "LVP : BYPASS", color='YELLOW', size=1)
     else:
-        draw_text(d, 4, yLvp, f"LVP : {'ACTIVE' if lvp_latched else 'ok'}", color='WHITE', size=1)
+        draw_text(img, d, 4, yLvp, f"LVP : {'ACTIVE' if lvp_latched else 'ok'}", color='WHITE', size=1)
 
     # Footer
-    draw_text(d, 4, yHint, "OK=Menu  BACK=Home", color='YELLOW', size=1)
+    draw_text(img, d, 4, yHint, "OK=Menu  BACK=Home", color='YELLOW', size=1)
 
     # Fault ticker stub (if provided, show along bottom edge)
     if fault:
         d.rectangle([0, H-10, W, H], fill=COLORS['RED'])
-        draw_text(d, 2, H-10, fault, color='WHITE', size=1)
+        draw_text(img, d, 2, H-10, fault, color='WHITE', size=1)
 
     return img
 
@@ -146,9 +133,9 @@ def screen_menu(selected: int = 0):
         sel = (i == selected)
         if sel:
             d.rectangle([0, y-2, W, y-2 + rowH], fill=COLORS['BLUE'])
-            draw_text(d, 6, y, items[i], color='WHITE', size=1)
+            draw_text(img, d, 6, y, items[i], color='WHITE', size=1)
         else:
-            draw_text(d, 6, y, items[i], color='WHITE', size=1)
+            draw_text(img, d, 6, y, items[i], color='WHITE', size=1)
 
     return img
 
@@ -158,11 +145,11 @@ def screen_system_info(fw: str = "v1.0.2", wifi: str = "OK 192.168.1.23", lvp_by
     img = Image.new('RGB', (W, H), COLORS['BLACK'])
     d = ImageDraw.Draw(img)
 
-    draw_text(d, 4, 6, "System Info & Faults", color='CYAN', size=1)
+    draw_text(img, d, 4, 6, "System Info & Faults", color='CYAN', size=1)
     y = 22
     def line(k, v):
         nonlocal y
-        draw_text(d, 4, y, f"{k}: {v}", size=1)
+        draw_text(img, d, 4, y, f"{k}: {v}", size=1)
         y += 12
 
     line("Firmware", fw or "unknown")
@@ -172,7 +159,7 @@ def screen_system_info(fw: str = "v1.0.2", wifi: str = "OK 192.168.1.23", lvp_by
     if faults:
         line("Faults", "")
         for f in faults:
-            draw_text(d, 10, y, f"- {f}", size=1)
+            draw_text(img, d, 10, y, f"- {f}", size=1)
             y += 12
 
     return img
@@ -181,10 +168,10 @@ def screen_system_info(fw: str = "v1.0.2", wifi: str = "OK 192.168.1.23", lvp_by
 def screen_simple_title_body(title: str, lines: list[str]):
     img = Image.new('RGB', (W, H), COLORS['BLACK'])
     d = ImageDraw.Draw(img)
-    draw_text(d, 6, 10, title, size=1)
+    draw_text(img, d, 6, 10, title, size=1)
     y = 28
     for ln in lines:
-        draw_text(d, 6, y, ln, size=1)
+        draw_text(img, d, 6, y, ln, size=1)
         y += 12
     return img
 
@@ -240,10 +227,10 @@ def generate_all(scale: int = 1):
     img = Image.new('RGB', (W, H), COLORS['BLACK'])
     d = ImageDraw.Draw(img)
     d.rectangle([8, 20, W-8, 92], outline=COLORS['YELLOW'], width=1)
-    draw_text(d, 16, 28, 'Overcurrent', color='YELLOW', size=1)
-    draw_text(d, 16, 44, 'OCP latched. Press OK', size=1)
-    draw_text(d, 16, 56, 'to acknowledge.', size=1)
-    draw_text(d, 16, 76, 'OK=Acknowledge  BACK=Cancel', color='WHITE', size=1)
+    draw_text(img, d, 16, 28, 'Overcurrent', color='YELLOW', size=1)
+    draw_text(img, d, 16, 44, 'OCP latched. Press OK', size=1)
+    draw_text(img, d, 16, 56, 'to acknowledge.', size=1)
+    draw_text(img, d, 16, 76, 'OK=Acknowledge  BACK=Cancel', color='WHITE', size=1)
     save(img, 'ocp_modal', scale)
 
 
