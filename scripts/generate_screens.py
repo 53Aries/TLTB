@@ -33,10 +33,12 @@ def draw_text(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: int, text:
     if not text:
         return
     bbox = draw.textbbox((0, 0), text, font=BASE_FONT)
+    # Width/height from bbox; account for negative bearings by offsetting draw position
     tw, th = (bbox[2] - bbox[0]), (bbox[3] - bbox[1])
-    sprite = Image.new('RGBA', (max(1, tw), max(1, th)), (0, 0, 0, 0))
+    tw = max(1, tw); th = max(1, th)
+    sprite = Image.new('RGBA', (tw, th), (0, 0, 0, 0))
     sd = ImageDraw.Draw(sprite)
-    sd.text((0, 0), text, font=BASE_FONT, fill=COLORS[color])
+    sd.text((-bbox[0], -bbox[1]), text, font=BASE_FONT, fill=COLORS[color])
     if size and size > 1:
         sprite = sprite.resize((sprite.width * size, sprite.height * size), Image.NEAREST)
     if bg is not None:
