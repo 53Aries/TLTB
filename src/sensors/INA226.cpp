@@ -12,8 +12,6 @@ static constexpr uint16_t CALIB         = 0x0800;   // matches 1 mA/bit
 bool  INA226::PRESENT      = false;
 bool  INA226_SRC::PRESENT  = false;
 float INA226::OCP_LIMIT_A  = 20.0f;
-static constexpr float FAST_SHORT_A     = 40.0f;
-static constexpr float OPEN_THRESH_A    = 0.15f;
 
 // --- I2C bring-up (once) ---
 static bool s_wireInited = false;
@@ -80,7 +78,7 @@ float INA226::readCurrentA(){
 bool INA226::ocpActive(){
   if (!PRESENT) return false;
   float a = readCurrentA();
-  return (a >= OCP_LIMIT_A) || (a >= FAST_SHORT_A);
+  return (a >= OCP_LIMIT_A);
 }
 
 // ===== SOURCE INA226 (battery voltage for LVP) =====
