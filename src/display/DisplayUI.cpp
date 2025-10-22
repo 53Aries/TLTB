@@ -289,7 +289,7 @@ void DisplayUI::showStatus(const Telemetry& t){
     // Line 1: MODE (top)
     {
       bool selected = (_homeFocus == 1);
-      uint16_t bg = selected ? ST77XX_GREEN : ST77XX_BLACK;
+      uint16_t bg = selected ? ST77XX_BLUE : ST77XX_BLACK;
       uint16_t fg = ST77XX_WHITE;
       _tft->fillRect(0, yMode-2, W, hMode, bg);
       _tft->setTextSize(2);
@@ -367,7 +367,7 @@ void DisplayUI::showStatus(const Telemetry& t){
   // MODE line diff (mode or focus changed)
   static uint8_t s_prevMode = 255; static int s_prevFocus = -1;
   if (s_prevMode != _mode || s_prevFocus != _homeFocus) {
-    uint16_t bg = (_homeFocus==1)? ST77XX_GREEN : ST77XX_BLACK;
+    uint16_t bg = (_homeFocus==1)? ST77XX_BLUE : ST77XX_BLACK;
     _tft->fillRect(0, yMode-2, W, hMode, bg);
     _tft->setTextSize(2);
     _tft->setTextColor(ST77XX_WHITE, bg);

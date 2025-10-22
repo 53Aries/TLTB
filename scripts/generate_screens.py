@@ -94,7 +94,7 @@ def screen_home(mode: str = 'HD', load_a: float = 0.00, active: str = 'RF',
     yHint, hHint = 114, 12
 
     # MODE line (size=2) with optional focus highlight
-    bg = 'GREEN' if focus_mode else 'BLACK'
+    bg = 'BLUE' if focus_mode else 'BLACK'
     draw_text(img, d, 4, yMode, f"MODE: {mode}", color='WHITE', size=2, bg=bg)
 
     # Load
