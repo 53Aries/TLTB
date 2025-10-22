@@ -139,7 +139,6 @@ def screen_menu(selected: int = 0):
         "12V System",
         "Learn RF Button",
         "Clear RF Remotes",
-        "Brightness",
         "Wi-Fi Connect",
         "Wi-Fi Forget",
         "OTA Update",
@@ -217,8 +216,7 @@ def generate_all(scale: int = 1):
     save(screen_system_info(fw='v1.0.2', wifi='OK 192.168.1.23', lvp_bypass=False,
                             faults=['INA226 load missing', 'Wi-Fi disconnected']), 'system_info', scale)
 
-    # Adjusters and simple flows
-    save(screen_simple_title_body('Brightness', ['128/255', '', 'OK=Save  BACK=Cancel']), 'brightness', scale)
+    # Adjusters and simple flows (Brightness removed)
     save(screen_simple_title_body('Set LVP Cutoff (V)', ['15.50', '', 'OK=Save  BACK=Cancel']), 'lvp_cutoff', scale)
     save(screen_simple_title_body('Set OCP (A)', ['20.0', '', 'OK=Save  BACK=Cancel']), 'ocp_limit', scale)
 

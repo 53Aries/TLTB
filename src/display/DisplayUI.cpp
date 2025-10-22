@@ -29,7 +29,6 @@ static const char* const kMenuItems[] = {
   "12V System",
   "Learn RF Button",
   "Clear RF Remotes",
-  "Brightness",
   "Wi-Fi Connect",
   "Wi-Fi Forget",
   "OTA Update",
@@ -184,9 +183,8 @@ void DisplayUI::begin(Preferences& p){
   pinMode(PIN_ROT_P7, INPUT_PULLUP);
   pinMode(PIN_ROT_P8, INPUT_PULLUP);
 
-  // Apply persisted brightness
-  uint8_t bri = _prefs->getUChar(_kBright, 255);
-  if (_setBrightness) _setBrightness(bri);
+  // Apply brightness at max (menu removed; keep at full by default)
+  if (_setBrightness) _setBrightness(255);
 
   // Load persisted UI mode (default HD)
   _mode = _prefs->getUChar(KEY_UI_MODE, 0);
@@ -693,7 +691,7 @@ void DisplayUI::handleMenuSelect(int idx){
         delay(12);
       }
     } break;
-    case 5: {                                               // Clear RF Remotes
+  case 5: {                                               // Clear RF Remotes
       // Clear RF Remotes (confirmation)
       _tft->fillScreen(ST77XX_BLACK);
   _tft->setTextSize(1);
@@ -707,11 +705,10 @@ void DisplayUI::handleMenuSelect(int idx){
         delay(10);
       }
     } break;
-    case 6: adjustBrightness(); break;                      // Brightness
-    case 7: wifiScanAndConnectUI(); break;                  // Wi-Fi Connect
-    case 8: wifiForget(); break;                            // Wi-Fi Forget
-    case 9: runOta(); break;                                // OTA Update
-    case 10: showSystemInfo(); break;                       // System Info
+    case 6: wifiScanAndConnectUI(); break;                  // Wi-Fi Connect
+    case 7: wifiForget(); break;                            // Wi-Fi Forget
+    case 8: runOta(); break;                                // OTA Update
+    case 9: showSystemInfo(); break;                        // System Info
   }
 }
 
