@@ -750,7 +750,7 @@ void DisplayUI::adjustOcpLimit(){
   float cur = _prefs->getFloat(KEY_OCP, 20.0f);
   _tft->fillScreen(ST77XX_BLACK); _tft->setCursor(6,10); _tft->println("Set OCP (A)");
   while(true){
-    int8_t d=readStep(); if(d){ cur+=d; if(cur<5)cur=5; if(cur>40)cur=40;
+    int8_t d=readStep(); if(d){ cur+=d; if(cur<5)cur=5; if(cur>35)cur=35;
       _tft->fillRect(6,28,148,12,ST77XX_BLACK); _tft->setCursor(6,28); _tft->printf("%4.1f A", cur);
     }
     if(okPressed()){ if(_ocpChanged) _ocpChanged(cur); _prefs->putFloat(KEY_OCP, cur); break; }
