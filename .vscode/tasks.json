@@ -367,6 +367,20 @@
 			"problemMatcher": [
 				"$platformio"
 			]
+		},
+		{
+			"label": "PlatformIO: Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$platformio"
+			]
 		}
 	]
 }
