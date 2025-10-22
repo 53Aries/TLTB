@@ -150,20 +150,7 @@ static void enforceRotaryMode(RotaryMode m) {
   }
 }
 
-// ----------- Relay Scan -----------
-static void scanAllOutputs(){
-  if (ui) ui->showScanBegin();
-  for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
-  delay(30);
-  for (int i = 0; i < (int)R_COUNT; ++i) {
-    relayOn(i);
-    if (ui) ui->showScanResult(i, "ON");
-    delay(120);
-    relayOff(i);
-    delay(50);
-  }
-  if (ui) ui->showScanDone();
-}
+// (Relay scan feature removed)
 
 // ----------- Faults -----------
 static uint32_t computeFaultMask(){
@@ -258,13 +245,11 @@ void setup() {
   ui = new DisplayUI(DisplayCtor{
     .pins        = {PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST, PIN_TFT_BL},
     .ns          = NVS_NS,
-    .kBright     = KEY_BRIGHT,
     .kLvCut      = KEY_LV_CUTOFF,
     .kWifiSsid   = KEY_WIFI_SSID,
     .kWifiPass   = KEY_WIFI_PASS,
     .readSrcV    = [](){ return INA226_SRC::readBusV(); },
     .readLoadA   = [](){ return INA226::readCurrentA(); },
-    .scanAll     = scanAllOutputs,
     .onOtaStart  = nullptr,
     .onOtaEnd    = nullptr,
     .onLvCutChanged = nullptr,

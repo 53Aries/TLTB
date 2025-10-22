@@ -10,13 +10,11 @@ struct DisplayPins { int CS, DC, RST, BL; };
 struct DisplayCtor {
   DisplayPins pins;
   const char* ns;
-  const char* kBright;
   const char* kLvCut;
   const char* kWifiSsid;
   const char* kWifiPass;
   std::function<float()> readSrcV;
   std::function<float()> readLoadA;
-  std::function<void()>  scanAll;
   std::function<void()>  onOtaStart;
   std::function<void()>  onOtaEnd;
   std::function<void(float)> onLvCutChanged;
@@ -47,11 +45,9 @@ public:
   void setEncoderReaders(std::function<int8_t()> step,
                          std::function<bool()> ok,
                          std::function<bool()> back);
-  void attachScanAll(std::function<void()> fn) { _scanAll = fn; }
   void tick(const Telemetry& t);
 
   void showStatus(const Telemetry& t);
-  void showScanBegin(); void showScanResult(int relayIdx, const char* result); void showScanDone();
   void setFaultMask(uint32_t m);
 
   // OCP modal
@@ -70,7 +66,6 @@ private:
 
   // actions & sub UIs
   void handleMenuSelect(int idx);
-  void adjustBrightness();
   void adjustLvCutoff();
   void adjustOcpLimit();
   void toggleLvpBypass();          // NEW
@@ -81,7 +76,7 @@ private:
 
   // small helpers
   int8_t readStep(); bool okPressed(); bool backPressed();
-  void   saveBrightness(uint8_t v); void saveLvCut(float v);
+  void   saveLvCut(float v);
   void   saveMode(uint8_t m);
 
   // fault banner (scrolling)
@@ -96,9 +91,9 @@ private:
 
   // fields
   DisplayPins _pins;
-  const char* _ns; const char* _kBright; const char* _kLvCut; const char* _kSsid; const char* _kPass;
+  const char* _ns; const char* _kLvCut; const char* _kSsid; const char* _kPass;
   std::function<float()> _readSrcV, _readLoadA;
-  std::function<void()>  _scanAll, _otaStart, _otaEnd;
+  std::function<void()>  _otaStart, _otaEnd;
   std::function<void(float)> _lvChanged, _ocpChanged;
   std::function<bool(int)> _rfLearn;
   std::function<bool()> _getLvpBypass;

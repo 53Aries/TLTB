@@ -149,13 +149,11 @@ static void getActiveRelayStatus(String& out){
 DisplayUI::DisplayUI(const DisplayCtor& c)
 : _pins(c.pins),
   _ns(c.ns),
-  _kBright(c.kBright),
   _kLvCut(c.kLvCut),
   _kSsid(c.kWifiSsid),
   _kPass(c.kWifiPass),
   _readSrcV(c.readSrcV),
   _readLoadA(c.readLoadA),
-  _scanAll(c.scanAll),
   _otaStart(c.onOtaStart),
   _otaEnd(c.onOtaEnd),
   _lvChanged(c.onLvCutChanged),
@@ -731,25 +729,7 @@ void DisplayUI::handleMenuSelect(int idx){
 }
 
 // --- adjusters ---
-void DisplayUI::saveBrightness(uint8_t v){ if(_prefs) _prefs->putUChar(_kBright, v); }
 void DisplayUI::saveLvCut(float v){ if(_prefs) _prefs->putFloat(_kLvCut, v); }
-
-void DisplayUI::adjustBrightness(){
-  _tft->setTextSize(1);
-  uint8_t v=_prefs->getUChar(_kBright, 255);
-  _tft->fillScreen(ST77XX_BLACK); _tft->setCursor(6,10); _tft->println("Brightness");
-  _tft->setCursor(6,28); _tft->printf("%3u/255", v);
-  while(true){
-    int8_t d=readStep(); if(d){
-      int nv = (int)v + d*8; if(nv<0) nv=0; if(nv>255) nv=255; v=(uint8_t)nv;
-      _tft->fillRect(6,28,120,12,ST77XX_BLACK); _tft->setCursor(6,28); _tft->printf("%3u/255", v);
-      if(_setBrightness) _setBrightness(v);
-    }
-    if(okPressed()){ saveBrightness(v); break; }
-    if(backPressed()) break;
-    delay(8);
-  }
-}
 
 void DisplayUI::adjustLvCutoff(){
   _tft->setTextSize(1);
@@ -797,31 +777,7 @@ void DisplayUI::toggleLvpBypass(){
   g_forceHomeFull = true;
 }
 
-// ================================================================
-// Scan UI (used by main.cpp) — now holds on screen after done
-// ================================================================
-void DisplayUI::showScanBegin() {
-  _tft->fillScreen(ST77XX_BLACK);
-  _tft->setTextSize(1);
-  _tft->setCursor(6,10);
-  _tft->println("Scanning relays...");
-  _tft->setCursor(6, 116); _tft->print("BACK=Exit");
-}
-
-void DisplayUI::showScanResult(int idx, const char* res) {
-  int y = 28 + idx * 12;
-  if (y > 110) y = 110; // clamp
-  _tft->setCursor(6, y);
-  _tft->printf("R%d: %s\n", idx + 1, res ? res : "-");
-}
-
-void DisplayUI::showScanDone() {
-  _tft->setCursor(6, 100);
-  _tft->print("Done - BACK=Exit");
-  // Hold here until user presses BACK
-  while(!backPressed()) delay(10);
-  g_forceHomeFull = true;  // ensure full home repaint after exiting this modal
-}
+// Scan UI removed
 
 // ================================================================
 // OCP modal
