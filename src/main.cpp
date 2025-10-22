@@ -312,9 +312,11 @@ void loop() {
 
   // Protection logic
   protector.tick(tele.srcV, tele.loadA, millis());
-  tele.lvpLatched = protector.isLvpLatched() || protector.isOcpLatched();
+  // Track latches separately for UI clarity
+  tele.lvpLatched = protector.isLvpLatched();
+  tele.ocpLatched = protector.isOcpLatched();
   // Buzzer fault pattern tick (priority over one-shot)
-  Buzzer::tick(tele.lvpLatched, millis());
+  Buzzer::tick(tele.lvpLatched || tele.ocpLatched, millis());
 
   // OCP modal
   static bool prevOcp = false;
@@ -324,11 +326,11 @@ void loop() {
   prevOcp = ocpNow;
 
   if (needOcpAck) {
-    bool clear = ui->protectionAlarm("OCP TRIPPED", "Over-current detected.", "Press OK to clear latch");
-    if (clear) {
-      protector.clearLatches();
-      tele.lvpLatched = false;
-    }
+    // Modal is now OK-only; returns after OK pressed
+    (void)ui->protectionAlarm("OCP TRIPPED", "Over-current detected.", "Press OK to clear latch");
+    protector.clearLatches();
+    tele.lvpLatched = false;
+    tele.ocpLatched = false;
     needOcpAck = false;
     ui->showStatus(tele);
   }

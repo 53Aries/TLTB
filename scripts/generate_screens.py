@@ -78,6 +78,7 @@ def save(img: Image.Image, name: str, scale: int = 1):
 
 def screen_home(mode: str = 'HD', load_a: float = 0.00, active: str = 'RF',
                 sys12_enabled: bool = True, lvp_bypass: bool = False, lvp_latched: bool = False,
+                ocp_latched: bool = False,
                 fault: str | None = None, focus_mode: bool = False):
     img = Image.new('RGB', (W, H), COLORS['BLACK'])
     d = ImageDraw.Draw(img)
@@ -89,6 +90,7 @@ def screen_home(mode: str = 'HD', load_a: float = 0.00, active: str = 'RF',
     # InputV removed; place 12V directly below Active
     y12, h12 = yActive + hActive + 2, 12
     yLvp, hLvp = y12 + h12 + 2, 12
+    yOcp, hOcp = yLvp + hLvp + 2, 12
     yHint, hHint = 114, 12
 
     # MODE line (size=2) with optional focus highlight
@@ -116,6 +118,9 @@ def screen_home(mode: str = 'HD', load_a: float = 0.00, active: str = 'RF',
         draw_text(img, d, 4, yLvp, "LVP : BYPASS", color='YELLOW', size=1)
     else:
         draw_text(img, d, 4, yLvp, f"LVP : {'ACTIVE' if lvp_latched else 'ok'}", color='WHITE', size=1)
+
+    # OCP status
+    draw_text(img, d, 4, yOcp, f"OCP : {'ACTIVE' if ocp_latched else 'ok'}", size=1)
 
     # Footer
     draw_text(img, d, 4, yHint, "OK=Menu  BACK=Home", color='YELLOW', size=1)
@@ -200,13 +205,13 @@ def screen_simple_title_body(title: str, lines: list[str]):
 
 def generate_all(scale: int = 1):
     # Home (HD)
-    save(screen_home(mode='HD', load_a=0.00, active='RF', sys12_enabled=True, lvp_bypass=False, lvp_latched=False), 'home_hd_idle', scale)
-    save(screen_home(mode='HD', load_a=3.42, active='LEFT', sys12_enabled=True, lvp_bypass=False, lvp_latched=False), 'home_hd_left', scale)
-    save(screen_home(mode='HD', load_a=1.02, active='BRAKE', sys12_enabled=True, lvp_bypass=False, lvp_latched=True), 'home_hd_brake_lvp', scale)
+    save(screen_home(mode='HD', load_a=0.00, active='RF', sys12_enabled=True, lvp_bypass=False, lvp_latched=False, ocp_latched=False), 'home_hd_idle', scale)
+    save(screen_home(mode='HD', load_a=3.42, active='LEFT', sys12_enabled=True, lvp_bypass=False, lvp_latched=False, ocp_latched=False), 'home_hd_left', scale)
+    save(screen_home(mode='HD', load_a=1.02, active='BRAKE', sys12_enabled=True, lvp_bypass=False, lvp_latched=True, ocp_latched=False), 'home_hd_brake_lvp', scale)
 
     # Home (RV) with MODE focus
-    save(screen_home(mode='RV', load_a=0.55, active='RF', sys12_enabled=True, lvp_bypass=False, lvp_latched=False, focus_mode=True), 'home_rv_idle_focus', scale)
-    save(screen_home(mode='RV', load_a=2.10, active='BRAKE', sys12_enabled=True, lvp_bypass=False, lvp_latched=False), 'home_rv_brake', scale)
+    save(screen_home(mode='RV', load_a=0.55, active='RF', sys12_enabled=True, lvp_bypass=False, lvp_latched=False, ocp_latched=False, focus_mode=True), 'home_rv_idle_focus', scale)
+    save(screen_home(mode='RV', load_a=2.10, active='BRAKE', sys12_enabled=True, lvp_bypass=False, lvp_latched=False, ocp_latched=True), 'home_rv_brake', scale)
 
     # Menu
     save(screen_menu(selected=0), 'menu_top', scale)
@@ -242,14 +247,14 @@ def generate_all(scale: int = 1):
     save(screen_simple_title_body('Scan Result', ['Relay 1: OK', 'Relay 2: OK', 'Relay 3: OK']), 'scan_result', scale)
     save(screen_simple_title_body('Scan Done', ['All relays tested.']), 'scan_done', scale)
 
-    # OCP modal (approximate)
+    # OCP modal (approximate; OK-only)
     img = Image.new('RGB', (W, H), COLORS['BLACK'])
     d = ImageDraw.Draw(img)
     d.rectangle([8, 20, W-8, 92], outline=COLORS['YELLOW'], width=1)
     draw_text(img, d, 16, 28, 'Overcurrent', color='YELLOW', size=1)
     draw_text(img, d, 16, 44, 'OCP latched. Press OK', size=1)
     draw_text(img, d, 16, 56, 'to acknowledge.', size=1)
-    draw_text(img, d, 16, 76, 'OK=Acknowledge  BACK=Cancel', color='WHITE', size=1)
+    draw_text(img, d, 16, 76, 'OK=Clear latch', color='WHITE', size=1)
     save(img, 'ocp_modal', scale)
 
 

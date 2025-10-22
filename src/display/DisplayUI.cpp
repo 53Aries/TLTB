@@ -268,6 +268,7 @@ void DisplayUI::showStatus(const Telemetry& t){
   // Removed InputV: place 12V line directly below Active
   const int y12     = yActive + hActive + 2; const int h12 = 12;
   const int yLvp    = y12 + h12 + 2;  const int hLvp    = 12;
+  const int yOcp    = yLvp + hLvp + 2; const int hOcp    = 12;
   const int yHint   = 114;  const int hHint   = 12;
 
   static bool s_inited = false;
@@ -338,6 +339,12 @@ void DisplayUI::showStatus(const Telemetry& t){
       _tft->setCursor(4, yLvp); _tft->print("LVP : ");
       _tft->print(t.lvpLatched? "ACTIVE":"ok");
     }
+
+    // Line 6: OCP status (new, separate line)
+    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    _tft->setCursor(4, yOcp);
+    _tft->print("OCP : ");
+    _tft->print(t.ocpLatched ? "ACTIVE" : "ok");
     // (MODE line already drawn at top)
 
   // Footer
@@ -431,6 +438,16 @@ void DisplayUI::showStatus(const Telemetry& t){
       }
       prevBypass = bypass;
     }
+  }
+
+  // OCP status changed?
+  if (t.ocpLatched != _last.ocpLatched) {
+    _tft->fillRect(0, yOcp-2, W, hOcp, ST77XX_BLACK);
+    _tft->setTextSize(1);
+    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    _tft->setCursor(4, yOcp);
+    _tft->print("OCP : ");
+    _tft->print(t.ocpLatched ? "ACTIVE" : "ok");
   }
 
   // Fault ticker redraw if mask changed
@@ -570,6 +587,7 @@ void DisplayUI::tick(const Telemetry& t){
         (isnan(t.loadA) != isnan(_last.loadA)) ||
         (!isnan(t.loadA) && fabsf(t.loadA - _last.loadA) > 0.02f) ||
         (t.lvpLatched != _last.lvpLatched) ||
+        (t.ocpLatched != _last.ocpLatched) ||
         _needRedraw
       );
 
@@ -820,11 +838,11 @@ bool DisplayUI::protectionAlarm(const char* title, const char* line1, const char
 
   _tft->fillRect(0, 108, 160, 20, ST77XX_BLACK);
   _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-  _tft->setCursor(6, 112); _tft->print("OK=Clear latch   BACK=Ignore");
+  _tft->setCursor(6, 112); _tft->print("OK=Clear latch");
 
   while (true) {
     if (okPressed())   { g_forceHomeFull = true; return true; }
-    if (backPressed()) { g_forceHomeFull = true; return false; }
+    // BACK no longer cancels; ignore until OK is pressed
     delay(10);
   }
 }
