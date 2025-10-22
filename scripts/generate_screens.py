@@ -133,7 +133,6 @@ def screen_menu(selected: int = 0):
     d = ImageDraw.Draw(img)
 
     items = [
-        "Scan All Outputs",
         "Set LVP Cutoff",
         "LVP Bypass",
         "Set OCP Limit",

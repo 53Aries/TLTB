@@ -23,7 +23,6 @@ static bool g_forceHomeFull = false;
 
 // ---------------- Menu ----------------
 static const char* const kMenuItems[] = {
-  "Scan All Outputs",
   "Set LVP Cutoff",
   "LVP Bypass",
   "Set OCP Limit",
@@ -607,11 +606,10 @@ void DisplayUI::toggleMode(){ _mode = (_mode==0)?1:0; saveMode(_mode); }
 // ================================================================
 void DisplayUI::handleMenuSelect(int idx){
   switch(idx){
-    case 0: if(_scanAll) _scanAll(); break;                 // Scan All Outputs
-    case 1: adjustLvCutoff(); break;                        // Set LVP Cutoff
-    case 2: toggleLvpBypass(); break;                       // LVP Bypass
-    case 3: adjustOcpLimit(); break;                        // Set OCP Limit
-    case 4: {                                               // 12V System
+    case 0: adjustLvCutoff(); break;                        // Set LVP Cutoff
+    case 1: toggleLvpBypass(); break;                       // LVP Bypass
+    case 2: adjustOcpLimit(); break;                        // Set OCP Limit
+    case 3: {                                               // 12V System
       // 12V System toggle UI
       while(true) {
         _tft->fillScreen(ST77XX_BLACK);
@@ -632,7 +630,7 @@ void DisplayUI::handleMenuSelect(int idx){
       }
       g_forceHomeFull = true;
     } break;
-    case 5: {                                               // Learn RF Button
+    case 4: {                                               // Learn RF Button
       // RF Learn (simple modal)
       int sel = 0, lastSel = -1;
       _tft->fillScreen(ST77XX_BLACK);
@@ -695,7 +693,7 @@ void DisplayUI::handleMenuSelect(int idx){
         delay(12);
       }
     } break;
-    case 6: {                                               // Clear RF Remotes
+    case 5: {                                               // Clear RF Remotes
       // Clear RF Remotes (confirmation)
       _tft->fillScreen(ST77XX_BLACK);
   _tft->setTextSize(1);
@@ -709,11 +707,11 @@ void DisplayUI::handleMenuSelect(int idx){
         delay(10);
       }
     } break;
-    case 7: adjustBrightness(); break;                      // Brightness
-    case 8: wifiScanAndConnectUI(); break;                  // Wi-Fi Connect
-    case 9: wifiForget(); break;                            // Wi-Fi Forget
-    case 10: runOta(); break;                               // OTA Update
-    case 11: showSystemInfo(); break;                       // System Info
+    case 6: adjustBrightness(); break;                      // Brightness
+    case 7: wifiScanAndConnectUI(); break;                  // Wi-Fi Connect
+    case 8: wifiForget(); break;                            // Wi-Fi Forget
+    case 9: runOta(); break;                                // OTA Update
+    case 10: showSystemInfo(); break;                       // System Info
   }
 }
 
