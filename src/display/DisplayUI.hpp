@@ -53,6 +53,9 @@ public:
   // OCP modal
   bool protectionAlarm(const char* title, const char* line1, const char* line2 = nullptr);
 
+  // Dev boot: restrict menu to Wi‑Fi and OTA only and keep UI in menu
+  void setDevMenuOnly(bool on);
+
   // Optional: expose mode getters/setters if other modules need it later
   enum UIMode : uint8_t { MODE_HD = 0, MODE_RV = 1 };
   UIMode mode() const { return (UIMode)_mode; }
@@ -122,4 +125,7 @@ private:
   // Home interactions
   uint8_t _mode = 0;          // 0=HD, 1=RV (persisted)
   int     _homeFocus = 0;     // 0 = none, 1 = MODE line highlighted
+
+  // Dev-boot menu restriction
+  bool _devMenuOnly = false;
 };

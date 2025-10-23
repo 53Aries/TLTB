@@ -35,6 +35,9 @@ static const char* const kMenuItems[] = {
   "System Info"
 };
 static constexpr int MENU_COUNT = sizeof(kMenuItems) / sizeof(kMenuItems[0]);
+// Dev boot menu shows only Wi‑Fi and OTA entries
+static const int kDevMenuMap[] = {6, 7, 8};
+static constexpr int DEV_MENU_COUNT = sizeof(kDevMenuMap) / sizeof(kDevMenuMap[0]);
 
 static const char* const OTA_URL_KEY = "ota_url";
 // Preference key for HD/RV mode
@@ -470,6 +473,7 @@ void DisplayUI::drawMenu(){
   const int rowH = 12;
   // Ensure menu uses size 1 text regardless of prior Home text size
   _tft->setTextSize(1);
+  int total = _devMenuOnly ? DEV_MENU_COUNT : MENU_COUNT;
 
   static int menuTop = 0;      // first visible index
   static int prevTop = -1;     // previously drawn top
@@ -485,7 +489,8 @@ void DisplayUI::drawMenu(){
     _tft->setTextSize(1);
     _tft->setTextColor(ST77XX_WHITE, bg);
     _tft->setCursor(6, y);
-    _tft->print(kMenuItems[i]);
+    int srcIdx = _devMenuOnly ? kDevMenuMap[i] : i;
+    _tft->print(kMenuItems[srcIdx]);
   };
 
   // Keep selection in view
@@ -495,7 +500,7 @@ void DisplayUI::drawMenu(){
   // First paint or window changed → repaint the visible window
   if (prevTop != menuTop || prevIdx < 0) {
     _tft->fillScreen(ST77XX_BLACK);
-    for (int i = menuTop; i < menuTop + rows && i < MENU_COUNT; ++i) {
+    for (int i = menuTop; i < menuTop + rows && i < total; ++i) {
       drawRow(i, i == _menuIdx);
     }
     prevTop = menuTop;
@@ -519,7 +524,8 @@ void DisplayUI::drawMenuItem(int i, bool sel){
   _tft->fillRect(0, y-2, 160, 12, bg);
   _tft->setTextColor(fg, bg);
   _tft->setCursor(6, y);
-  _tft->print(kMenuItems[i]);
+  int srcIdx = _devMenuOnly ? kDevMenuMap[i] : i;
+  _tft->print(kMenuItems[srcIdx]);
 }
 
 // ================================================================
@@ -555,9 +561,15 @@ void DisplayUI::tick(const Telemetry& t){
   bool back = backPressed();
 
   if (_inMenu) {
-    if (d)   { _menuIdx = (( _menuIdx + d ) % MENU_COUNT + MENU_COUNT) % MENU_COUNT; _needRedraw = true; }
-    if (ok)  { handleMenuSelect(_menuIdx); _inMenu = false; _needRedraw = true; }
-    if (back){ _inMenu = false; _needRedraw = true; }
+    int total = _devMenuOnly ? DEV_MENU_COUNT : MENU_COUNT;
+    if (d)   { _menuIdx = (( _menuIdx + d ) % total + total) % total; _needRedraw = true; }
+    if (ok)  {
+      int srcIdx = _devMenuOnly ? kDevMenuMap[_menuIdx] : _menuIdx;
+      handleMenuSelect(srcIdx);
+      if (!_devMenuOnly) _inMenu = false; // stay in menu in dev mode
+      _needRedraw = true;
+    }
+    if (back){ if (!_devMenuOnly) { _inMenu = false; _needRedraw = true; } }
   } else {
     if (ok)  {
       if (_homeFocus == 1) { toggleMode(); _needRedraw = true; }
@@ -614,6 +626,11 @@ void DisplayUI::tick(const Telemetry& t){
 // Persist and toggle mode helpers
 void DisplayUI::saveMode(uint8_t m){ if (_prefs) _prefs->putUChar(KEY_UI_MODE, m); }
 void DisplayUI::toggleMode(){ _mode = (_mode==0)?1:0; saveMode(_mode); }
+
+void DisplayUI::setDevMenuOnly(bool on){
+  _devMenuOnly = on;
+  if (on) { _inMenu = true; _menuIdx = 0; _needRedraw = true; }
+}
 
 // ================================================================
 // actions & sub UIs

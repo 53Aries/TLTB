@@ -19,6 +19,7 @@ extern "C" {
 #include "relays.hpp"
 #include <Preferences.h>
 #include "power/Protector.hpp"
+#include "ota/Ota.hpp"
 
 // ---------------- Globals ----------------
 static Adafruit_ST7735* tft = nullptr;   // shared SPI
@@ -28,6 +29,7 @@ static Telemetry tele{};
 // OTA rollback verification
 static bool g_otaPendingVerify = false;
 static uint32_t g_otaBootMs = 0;
+static bool g_devBoot = false;   // Developer-boot mode flag
 
 // LEDC (backlight)
 static const int BL_CHANNEL = 0;
@@ -192,6 +194,13 @@ void setup() {
   pinMode(PIN_ENC_OK,   INPUT_PULLUP);
   pinMode(PIN_ENC_BACK, INPUT_PULLUP);
 
+  // Early dev-boot detection: rotary at position 8 and BACK held during power-on
+  pinMode(PIN_ROT_P8, INPUT_PULLUP);
+  delay(5);
+  if (digitalRead(PIN_ENC_BACK) == LOW && digitalRead(PIN_ROT_P8) == LOW) {
+    g_devBoot = true;
+  }
+
   attachInterrupt(digitalPinToInterrupt(PIN_ENC_A), enc_isrA, RISING);
 
   // Rotary switch pins
@@ -225,12 +234,6 @@ void setup() {
   tft->setSPISpeed(8000000UL);
   tft->initR(INITR_BLACKTAB);
   tft->setRotation(1);
-  // Diagnostic color cycle to verify bus operation visually
-  for (int i=0;i<3;i++){
-    uint16_t c = (i==0)?ST77XX_RED: (i==1)?ST77XX_GREEN: ST77XX_BLUE;
-    tft->fillScreen(c);
-    delay(250);
-  }
   tft->fillScreen(ST77XX_BLACK);
 
   // Backlight (8-bit)
@@ -240,6 +243,8 @@ void setup() {
 
   // prefs first
   prefs.begin(NVS_NS, false);
+
+  // Dev-boot now uses existing UI Wi‑Fi/OTA pages; no special flow here.
 
   // UI wire-up
   ui = new DisplayUI(DisplayCtor{
@@ -264,13 +269,19 @@ void setup() {
 
   ui->begin(prefs);               // shows splash, applies brightness
 
-  // sensors + RF (safe if missing)
-  INA226::begin();
-  INA226_SRC::begin();
+  if (g_devBoot) {
+    ui->setDevMenuOnly(true); // restrict menu to Wi‑Fi/OTA and start in menu
+  }
 
-  // === RF bring-up (graceful if not connected) ===
-  RF::begin();
-  Buzzer::begin();
+  // sensors + RF (skip in dev-boot)
+  if (!g_devBoot) {
+    INA226::begin();
+    INA226_SRC::begin();
+    RF::begin();
+    Buzzer::begin();
+  } else {
+    Buzzer::begin(); // keep buzzer available for feedback if needed
+  }
 
   // Auto-join Wi-Fi (non-blocking)
   {
@@ -284,13 +295,21 @@ void setup() {
   }
 
   // Protector init (loads thresholds)
-  protector.begin(&prefs);
-
-  ui->setFaultMask(computeFaultMask());
-  ui->showStatus(tele);
+  if (!g_devBoot) {
+    protector.begin(&prefs);
+    ui->setFaultMask(computeFaultMask());
+    ui->showStatus(tele);
+  }
 }
 
 void loop() {
+  if (g_devBoot) {
+    // Dev boot: only UI for Wi‑Fi and OTA
+    ui->tick(tele);
+    delay(1);
+    return;
+  }
+
   // Read telemetry if present
   tele.srcV  = INA226_SRC::PRESENT ? INA226_SRC::readBusV()    : NAN;
   tele.loadA = INA226::PRESENT     ? INA226::readCurrentA()    : NAN;
