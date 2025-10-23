@@ -624,20 +624,35 @@ void DisplayUI::handleMenuSelect(int idx){
     case 1: toggleLvpBypass(); break;                       // LVP Bypass
     case 2: adjustOcpLimit(); break;                        // Set OCP Limit
     case 3: {                                               // 12V System
-      // 12V System toggle UI
-      while(true) {
-        _tft->fillScreen(ST77XX_BLACK);
-        _tft->setTextSize(1);
-        _tft->setCursor(6,10); _tft->println("12V System");
+      // 12V System toggle UI (no-flicker incremental updates)
+      _tft->fillScreen(ST77XX_BLACK);
+      _tft->setTextSize(1);
+      _tft->setCursor(6,10); _tft->println("12V System");
+      _tft->setCursor(6,56); _tft->print("OK=Toggle  BACK=Exit");
+
+      // Draw state once, then update only when changed
+      bool prevEn = !relayIsOn(R_ENABLE); // force initial draw
+      auto drawState = [&](){
         bool en = relayIsOn(R_ENABLE);
+        _tft->fillRect(0,24,160,14,ST77XX_BLACK); // clear line area around y=30
         _tft->setCursor(6,30); _tft->print("State: "); _tft->print(en?"ENABLED":"DISABLED");
-        _tft->setCursor(6,56); _tft->print("OK=Toggle  BACK=Exit");
+        prevEn = en;
+      };
+
+      drawState();
+
+      while(true) {
+        bool enNow = relayIsOn(R_ENABLE);
+        if (enNow != prevEn) drawState();
+
         if (okPressed()) {
-          if (en) relayOff(R_ENABLE); else relayOn(R_ENABLE);
-          // brief feedback
-          _tft->fillRect(6,30,140,12,ST77XX_BLACK);
-          _tft->setCursor(6,30); _tft->print("Toggled");
-          delay(350);
+          if (enNow) relayOff(R_ENABLE); else relayOn(R_ENABLE);
+          // brief toast without clearing full screen
+          _tft->fillRect(0,44,160,12,ST77XX_BLACK);
+          _tft->setCursor(6,44); _tft->print("Toggled");
+          delay(250);
+          _tft->fillRect(0,44,160,12,ST77XX_BLACK);
+          drawState();
         }
         if (backPressed()) break;
         delay(20);
