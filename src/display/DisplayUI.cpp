@@ -328,12 +328,23 @@ void DisplayUI::showStatus(const Telemetry& t){
         _tft->print(_mode ? "RV" : "HD");
       }
 
-      // Line 2: Load
-      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      // Line 2: Load (color-coded by amperage)
       _tft->setTextSize(2);
       _tft->setCursor(4, yLoad);
-      if (isnan(t.loadA)) _tft->print("Load:  N/A");
-      else                _tft->printf("Load: %4.2f A", t.loadA);
+      if (isnan(t.loadA)) {
+        _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+        _tft->print("Load:  N/A");
+      } else {
+        // Draw label in white
+        _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+        _tft->print("Load: ");
+        // Choose value color: <=20A green, 20-25A yellow, >25A red
+        uint16_t valColor = ST77XX_GREEN;
+        if (t.loadA > 25.0f) valColor = ST77XX_RED;
+        else if (t.loadA > 20.0f) valColor = ST77XX_YELLOW;
+        _tft->setTextColor(valColor, ST77XX_BLACK);
+        _tft->printf("%4.2f A", t.loadA);
+      }
 
       // Line 2: Active (auto size)
       {
@@ -424,11 +435,21 @@ void DisplayUI::showStatus(const Telemetry& t){
   if ((isnan(t.loadA) != isnan(_last.loadA)) ||
       (!isnan(t.loadA) && fabsf(t.loadA - _last.loadA) > 0.02f)) {
     _tft->fillRect(0, yLoad-2, W, hLoad, ST77XX_BLACK);
-    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     _tft->setTextSize(2);
     _tft->setCursor(4, yLoad);
-    if (isnan(t.loadA)) _tft->print("Load:  N/A");
-    else                _tft->printf("Load: %4.2f A", t.loadA);
+    if (isnan(t.loadA)) {
+      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      _tft->print("Load:  N/A");
+    } else {
+      // Draw label in white then value in color
+      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      _tft->print("Load: ");
+      uint16_t valColor = ST77XX_GREEN;
+      if (t.loadA > 25.0f) valColor = ST77XX_RED;
+      else if (t.loadA > 20.0f) valColor = ST77XX_YELLOW;
+      _tft->setTextColor(valColor, ST77XX_BLACK);
+      _tft->printf("%4.2f A", t.loadA);
+    }
   }
 
   // Active label changed (or would overflow size 2)
