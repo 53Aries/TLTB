@@ -163,7 +163,8 @@ DisplayUI::DisplayUI(const DisplayCtor& c)
   _ocpChanged(c.onOcpChanged),
   _rfLearn(c.onRfLearn),
   _getLvpBypass(c.getLvpBypass),
-  _setLvpBypass(c.setLvpBypass) {}
+  _setLvpBypass(c.setLvpBypass),
+  _getStartupGuard(c.getStartupGuard) {}
 
 void DisplayUI::attachTFT(Adafruit_ST7735* tft, int blPin){ _tft=tft; _blPin=blPin; }
 void DisplayUI::attachBrightnessSetter(std::function<void(uint8_t)> fn){ _setBrightness=fn; }
@@ -260,6 +261,9 @@ void DisplayUI::drawFaultTicker(bool force){
 // home / menu draw (NO-FLICKER HOME)
 // ================================================================
 void DisplayUI::showStatus(const Telemetry& t){
+  // Check startup guard status
+  bool startupGuard = _getStartupGuard ? _getStartupGuard() : false;
+  
   // Layout constants for targeted clears
   const int W = 160;
   // Top MODE row (approx 1.5x via size=2), then Load and Active also at ~1.5x
@@ -275,6 +279,7 @@ void DisplayUI::showStatus(const Telemetry& t){
   static bool s_inited = false;
   static String s_prevActive;
   static uint32_t s_prevFaultMask = 0;
+  static bool s_prevStartupGuard = false;
 
   // ========== NEW: force full repaint request ==========
   if (g_forceHomeFull) {
@@ -289,74 +294,96 @@ void DisplayUI::showStatus(const Telemetry& t){
   // First-time: full draw
   if (!s_inited) {
     _tft->fillScreen(ST77XX_BLACK);
-    // Line 1: MODE (top)
-    {
-      bool selected = (_homeFocus == 1);
-      uint16_t bg = selected ? ST77XX_BLUE : ST77XX_BLACK;
-      uint16_t fg = ST77XX_WHITE;
-      _tft->fillRect(0, yMode-2, W, hMode, bg);
+    
+    // Check if startup guard is active - show prominent warning
+    if (startupGuard) {
+      // Show startup guard warning in red
+      _tft->fillRect(0, 20, W, 80, ST77XX_RED);
+      _tft->setTextColor(ST77XX_WHITE, ST77XX_RED);
       _tft->setTextSize(2);
-      _tft->setTextColor(fg, bg);
-      _tft->setCursor(4, yMode);
-      _tft->print("MODE: ");
-      _tft->print(_mode ? "RV" : "HD");
-    }
-
-    // Line 2: Load
-    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-    _tft->setTextSize(2);
-    _tft->setCursor(4, yLoad);
-    if (isnan(t.loadA)) _tft->print("Load:  N/A");
-    else                _tft->printf("Load: %4.2f A", t.loadA);
-
-    // Line 2: Active (auto size)
-    {
-      String line = String("Active: ") + activeStr;
-      int availPx = 160 - 4;
-      int w2 = line.length() * 6 * 2;
-      uint8_t sz = (w2 > availPx) ? 1 : 2;
-      _tft->setTextSize(sz);
-      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-      _tft->setCursor(4, yActive);
-      _tft->print(line);
-    }
-
-    // Line 4: 12V enable status (shifted up; InputV removed)
-    _tft->setTextSize(1);
-    _tft->setCursor(4, y12);
-    bool en = relayIsOn(R_ENABLE);
-    _tft->print("12V sys: "); _tft->print(en?"ENABLED":"DISABLED");
-
-  // Line 5: LVP (shifted up)
-  _tft->setTextSize(1);
-  _tft->setCursor(4, yLvp);
-    bool bypass = _getLvpBypass ? _getLvpBypass() : false;
-    if (bypass) {
+      _tft->setCursor(4, 30);
+      _tft->print("WARNING!");
+      _tft->setTextSize(1);
+      _tft->setCursor(4, 55);
+      _tft->print("Cycle OUTPUT to OFF");
+      _tft->setCursor(4, 75);
+      _tft->print("before operation");
+      
+      // Footer
       _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-      _tft->print("LVP : BYPASS");
-      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      _tft->setCursor(4, yHint);
+      _tft->print("OK=Menu  BACK=Home");
     } else {
+      // Normal status display
+      // Line 1: MODE (top)
+      {
+        bool selected = (_homeFocus == 1);
+        uint16_t bg = selected ? ST77XX_BLUE : ST77XX_BLACK;
+        uint16_t fg = ST77XX_WHITE;
+        _tft->fillRect(0, yMode-2, W, hMode, bg);
+        _tft->setTextSize(2);
+        _tft->setTextColor(fg, bg);
+        _tft->setCursor(4, yMode);
+        _tft->print("MODE: ");
+        _tft->print(_mode ? "RV" : "HD");
+      }
+
+      // Line 2: Load
       _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-      _tft->setCursor(4, yLvp); _tft->print("LVP : ");
-      _tft->print(t.lvpLatched? "ACTIVE":"ok");
+      _tft->setTextSize(2);
+      _tft->setCursor(4, yLoad);
+      if (isnan(t.loadA)) _tft->print("Load:  N/A");
+      else                _tft->printf("Load: %4.2f A", t.loadA);
+
+      // Line 2: Active (auto size)
+      {
+        String line = String("Active: ") + activeStr;
+        int availPx = 160 - 4;
+        int w2 = line.length() * 6 * 2;
+        uint8_t sz = (w2 > availPx) ? 1 : 2;
+        _tft->setTextSize(sz);
+        _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+        _tft->setCursor(4, yActive);
+        _tft->print(line);
+      }
+
+      // Line 4: 12V enable status (shifted up; InputV removed)
+      _tft->setTextSize(1);
+      _tft->setCursor(4, y12);
+      bool en = relayIsOn(R_ENABLE);
+      _tft->print("12V sys: "); _tft->print(en?"ENABLED":"DISABLED");
+
+      // Line 5: LVP (shifted up)
+      _tft->setTextSize(1);
+      _tft->setCursor(4, yLvp);
+      bool bypass = _getLvpBypass ? _getLvpBypass() : false;
+      if (bypass) {
+        _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+        _tft->print("LVP : BYPASS");
+        _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      } else {
+        _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+        _tft->setCursor(4, yLvp); _tft->print("LVP : ");
+        _tft->print(t.lvpLatched? "ACTIVE":"ok");
+      }
+
+      // Line 6: OCP status (new, separate line)
+      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      _tft->setCursor(4, yOcp);
+      _tft->print("OCP : ");
+      _tft->print(t.ocpLatched ? "ACTIVE" : "ok");
+
+      // Footer
+      _tft->setCursor(4, yHint);
+      _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+      _tft->print("OK=Menu  BACK=Home");
+
+      drawFaultTicker(true);
     }
-
-    // Line 6: OCP status (new, separate line)
-    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-    _tft->setCursor(4, yOcp);
-    _tft->print("OCP : ");
-    _tft->print(t.ocpLatched ? "ACTIVE" : "ok");
-    // (MODE line already drawn at top)
-
-  // Footer
-  _tft->setCursor(4, yHint);
-  _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-  _tft->print("OK=Menu  BACK=Home");
-
-    drawFaultTicker(true);
 
     s_prevActive = activeStr;
     s_prevFaultMask = _faultMask;
+    s_prevStartupGuard = startupGuard;
 
     _last = t;
     _needRedraw = false;
@@ -365,6 +392,21 @@ void DisplayUI::showStatus(const Telemetry& t){
   }
 
   // --- Incremental updates (no full-screen clears) ---
+  
+  // Startup guard changed? Force full redraw
+  if (startupGuard != s_prevStartupGuard) {
+    s_inited = false; // Force full redraw
+    s_prevStartupGuard = startupGuard;
+    showStatus(t); // Recursive call for full redraw
+    return;
+  }
+  
+  // Skip normal incremental updates if startup guard is active
+  if (startupGuard) {
+    _last = t;
+    _needRedraw = false;
+    return;
+  }
 
   // Load A changed?
   // MODE line diff (mode or focus changed)

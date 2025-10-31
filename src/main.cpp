@@ -30,6 +30,7 @@ static Telemetry tele{};
 static bool g_otaPendingVerify = false;
 static uint32_t g_otaBootMs = 0;
 static bool g_devBoot = false;   // Developer-boot mode flag
+static bool g_startupGuard = false; // Prevents relay activation until 1p8t is cycled to OFF
 
 // LEDC (backlight)
 static const int BL_CHANNEL = 0;
@@ -97,7 +98,18 @@ static RotaryMode readRotary() {
 }
 
 static void enforceRotaryMode(RotaryMode m) {
-  // In all non-RF modes, we *force* the relay states each loop.
+  // Startup guard: keep all relays OFF until 1p8t is cycled to OFF position
+  if (g_startupGuard) {
+    // Clear guard when rotary is moved to OFF position
+    if (m == MODE_ALL_OFF) {
+      g_startupGuard = false;
+    }
+    // Keep all relays OFF while guard is active
+    for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+    return;
+  }
+
+  // Normal operation: In all non-RF modes, we *force* the relay states each loop.
   // This guarantees RF is effectively ignored unless in MODE_RF_ENABLE.
   auto allOff = [](){
     for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
@@ -213,6 +225,12 @@ void setup() {
   pinMode(PIN_ROT_P7, INPUT_PULLUP);
   pinMode(PIN_ROT_P8, INPUT_PULLUP);
 
+  // Startup guard: if 1p8t is not in OFF position (P1), require cycling to OFF first
+  delay(10); // Allow pins to settle
+  if (digitalRead(PIN_ROT_P1) != LOW) {
+    g_startupGuard = true; // Guard is active until cycled to OFF
+  }
+
   // Relays safe init
   relaysBegin();
 
@@ -262,6 +280,7 @@ void setup() {
     .onRfLearn      = [](int idx){ return RF::learn(idx); },
     .getLvpBypass   = [](){ return protector.lvpBypass(); },
     .setLvpBypass   = [](bool on){ protector.setLvpBypass(on); },
+    .getStartupGuard = [](){ return g_startupGuard; },
   });
   ui->attachTFT(tft, PIN_TFT_BL);
   ui->attachBrightnessSetter(setBacklight);

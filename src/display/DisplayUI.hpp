@@ -24,6 +24,9 @@ struct DisplayCtor {
   // NEW: LVP bypass accessors provided by main/protector
   std::function<bool()>      getLvpBypass;
   std::function<void(bool)>  setLvpBypass;
+  
+  // Startup guard accessor
+  std::function<bool()>      getStartupGuard;
 };
 
 enum FaultBits : uint32_t {
@@ -101,6 +104,7 @@ private:
   std::function<bool(int)> _rfLearn;
   std::function<bool()> _getLvpBypass;
   std::function<void(bool)> _setLvpBypass;
+  std::function<bool()> _getStartupGuard;
 
   Preferences* _prefs=nullptr;
 
