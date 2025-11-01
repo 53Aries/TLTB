@@ -9,8 +9,12 @@
 static constexpr uint8_t ADDR_LOAD = 0x40;
 static constexpr uint8_t ADDR_SRC  = 0x41;
 
+// Calibration for LOAD INA226 current measurement
+// Shunt: 40A / 75mV -> R_shunt = 0.075 / 40 = 1.875 mΩ
+static constexpr float   RSHUNT_OHMS    = 0.001875f;
 static constexpr float   CURRENT_LSB_A  = 0.001f;   // 1 mA/bit
-static constexpr uint16_t CALIB         = 0x0800;   // matches 1 mA/bit
+// Calibration register formula (per datasheet): CAL = 0.00512 / (Current_LSB * R_shunt)
+static constexpr uint16_t CALIB         = (uint16_t)((0.00512f / (CURRENT_LSB_A * RSHUNT_OHMS)) + 0.5f); // ≈ 2731 (0x0AAB)
 bool  INA226::PRESENT      = false;
 bool  INA226_SRC::PRESENT  = false;
 float INA226::OCP_LIMIT_A  = 20.0f;
