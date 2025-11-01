@@ -1,5 +1,7 @@
 #include "INA226.hpp"
 #include "pins.hpp"
+#include "../prefs.hpp"
+#include <math.h>
 #include <Arduino.h>
 #include <Wire.h>
 
@@ -12,6 +14,7 @@ static constexpr uint16_t CALIB         = 0x0800;   // matches 1 mA/bit
 bool  INA226::PRESENT      = false;
 bool  INA226_SRC::PRESENT  = false;
 float INA226::OCP_LIMIT_A  = 20.0f;
+static bool s_invertLoad = false;   // persisted via NVS
 
 // --- I2C bring-up (once) ---
 static bool s_wireInited = false;
@@ -59,6 +62,8 @@ void INA226::begin(){
   // AVG=16, VBUS=1.1ms, VSHUNT=1.1ms, continuous
   wr16(ADDR_LOAD, 0x00, (0b010<<9)|(0b100<<6)|(0b100<<3)|0b111);
   wr16(ADDR_LOAD, 0x05, CALIB);
+  // Load invert preference
+  s_invertLoad = prefs.getBool(KEY_CURR_INV, false);
 }
 
 void INA226::setOcpLimit(float amps){ OCP_LIMIT_A = amps; }
@@ -72,14 +77,22 @@ float INA226::readBusV(){
 float INA226::readCurrentA(){
   if (!PRESENT) return 0.0f;
   int16_t raw = (int16_t)rd16_or0(ADDR_LOAD, 0x04);
-  return raw * CURRENT_LSB_A;
+  float a = raw * CURRENT_LSB_A;
+  return s_invertLoad ? -a : a;
 }
 
 bool INA226::ocpActive(){
   if (!PRESENT) return false;
-  float a = readCurrentA();
+  float a = fabsf(readCurrentA());
   return (a >= OCP_LIMIT_A);
 }
+
+void INA226::setInvert(bool on){
+  s_invertLoad = on;
+  prefs.putBool(KEY_CURR_INV, on);
+}
+
+bool INA226::getInvert(){ return s_invertLoad; }
 
 // ===== SOURCE INA226 (battery voltage for LVP) =====
 void INA226_SRC::begin(){

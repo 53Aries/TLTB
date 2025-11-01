@@ -339,11 +339,12 @@ void DisplayUI::showStatus(const Telemetry& t){
         _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
         _tft->print("Load: ");
         // Choose value color: <=20A green, 20-25A yellow, >25A red
+        float shownA = fabsf(t.loadA);
         uint16_t valColor = ST77XX_GREEN;
-        if (t.loadA > 25.0f) valColor = ST77XX_RED;
-        else if (t.loadA > 20.0f) valColor = ST77XX_YELLOW;
+        if (shownA > 25.0f) valColor = ST77XX_RED;
+        else if (shownA > 20.0f) valColor = ST77XX_YELLOW;
         _tft->setTextColor(valColor, ST77XX_BLACK);
-        _tft->printf("%4.2f A", t.loadA);
+        _tft->printf("%4.2f A", shownA);
       }
 
       // Line 2: Active (auto size)
@@ -444,11 +445,12 @@ void DisplayUI::showStatus(const Telemetry& t){
       // Draw label in white then value in color
       _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
       _tft->print("Load: ");
+      float shownA = fabsf(t.loadA);
       uint16_t valColor = ST77XX_GREEN;
-      if (t.loadA > 25.0f) valColor = ST77XX_RED;
-      else if (t.loadA > 20.0f) valColor = ST77XX_YELLOW;
+      if (shownA > 25.0f) valColor = ST77XX_RED;
+      else if (shownA > 20.0f) valColor = ST77XX_YELLOW;
       _tft->setTextColor(valColor, ST77XX_BLACK);
-      _tft->printf("%4.2f A", t.loadA);
+      _tft->printf("%4.2f A", shownA);
     }
   }
 
