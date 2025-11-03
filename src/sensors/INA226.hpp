@@ -10,6 +10,10 @@ namespace INA226 {
   float  readBusV();
   float  readCurrentA();
   bool   ocpActive();
+
+  // Optional polarity inversion for load current
+  void   setInvert(bool on);
+  bool   getInvert();
 }
 
 namespace INA226_SRC {

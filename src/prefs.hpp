@@ -13,6 +13,8 @@ static constexpr const char* RF_PREF_KEYS[6] = {"rf_left","rf_right","rf_brake",
 static constexpr const char* KEY_UI_MODE     = "ui_mode";
 
 static constexpr const char* KEY_OTA_URL     = "ota_url";
+// Invert load current reading (bool)
+static constexpr const char* KEY_CURR_INV    = "cur_inv";
 // Persisted RF bit-bang orientation key (0=none,1=normal,2=swapped)
 static constexpr const char* KEY_RF_BB_ORIENT = "rf_bb_or";
 #define KEY_FW_VER       "fw_ver"

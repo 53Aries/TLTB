@@ -409,6 +409,50 @@
 			"problemMatcher": [
 				"$platformio"
 			]
+		},
+		{
+			"label": "Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build (esp32s3-devkitc1)",
+			"type": "shell",
+			"command": "C:\\Users\\colla\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--environment",
+				"esp32s3-devkitc1"
+			],
+			"group": "build"
 		}
 	]
 }
