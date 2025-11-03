@@ -185,10 +185,13 @@ void setup() {
   esp_task_wdt_deinit();
 
   // TFT & encoder/buttons pins
-  pinMode(PIN_TFT_BL, OUTPUT); digitalWrite(PIN_TFT_BL, HIGH);
+  // Keep backlight OFF until panel is fully initialized to avoid white-screen on cold power
+  pinMode(PIN_TFT_BL, OUTPUT); digitalWrite(PIN_TFT_BL, LOW);
   pinMode(PIN_TFT_CS, OUTPUT);  digitalWrite(PIN_TFT_CS, HIGH);
   pinMode(PIN_TFT_DC, OUTPUT);
   pinMode(PIN_TFT_RST, OUTPUT);
+  // Allow power rails to settle on cold battery connect
+  delay(60);
 
   // Check if this app is booting in pending-verify state (OTA rollback flow)
   {
@@ -240,12 +243,13 @@ void setup() {
   pinMode(PIN_FSPI_MOSI, OUTPUT);
   pinMode(PIN_FSPI_MISO, INPUT);
   SPI.begin(PIN_FSPI_SCK, PIN_FSPI_MISO, PIN_FSPI_MOSI, PIN_TFT_CS);
-  delay(10); // allow peripheral settle
+  delay(30); // allow peripheral settle
 
   // TFT reset + init
-  digitalWrite(PIN_TFT_RST, HIGH); delay(20);
-  digitalWrite(PIN_TFT_RST, LOW ); delay(50);
-  digitalWrite(PIN_TFT_RST, HIGH); delay(120);
+  // Stronger hardware reset timing to improve first-boot reliability after long power-off
+  digitalWrite(PIN_TFT_RST, HIGH); delay(50);
+  digitalWrite(PIN_TFT_RST, LOW ); delay(120);
+  digitalWrite(PIN_TFT_RST, HIGH); delay(150);
 
   tft = new Adafruit_ST7735(&SPI, PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST);
   // Start with a conservative SPI speed for signal integrity on longer jumpers
@@ -257,6 +261,7 @@ void setup() {
   // Backlight (8-bit)
   ledcSetup(BL_CHANNEL, 5000, 8);
   ledcAttachPin(PIN_TFT_BL, BL_CHANNEL);
+  // Enable backlight only after panel is initialized and cleared
   ledcWrite(BL_CHANNEL, 255);
 
   // prefs first
