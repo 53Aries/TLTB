@@ -32,6 +32,11 @@ static uint32_t g_otaBootMs = 0;
 static bool g_devBoot = false;   // Developer-boot mode flag
 static bool g_startupGuard = false; // Prevents relay activation until 1p8t is cycled to OFF
 
+// TFT post-init tracking
+static uint32_t g_tftInitMs = 0;
+static bool g_tftKicked = false;
+static bool g_uiBootDrawn = false;
+
 // LEDC (backlight)
 static const int BL_CHANNEL = 0;
 
@@ -184,14 +189,22 @@ static uint32_t computeFaultMask(){
 void setup() {
   esp_task_wdt_deinit();
 
+  // Bring up Serial early for boot diagnostics
+  Serial.begin(115200);
+  delay(10);
+  Serial.println();
+  Serial.println("[BOOT] TLTB starting...");
+  Serial.printf("[BOOT] Reset reason: %d\n", (int)esp_reset_reason());
+
   // TFT & encoder/buttons pins
   // Keep backlight OFF until panel is fully initialized to avoid white-screen on cold power
   pinMode(PIN_TFT_BL, OUTPUT); digitalWrite(PIN_TFT_BL, LOW);
   pinMode(PIN_TFT_CS, OUTPUT);  digitalWrite(PIN_TFT_CS, HIGH);
   pinMode(PIN_TFT_DC, OUTPUT);
   pinMode(PIN_TFT_RST, OUTPUT);
-  // Allow power rails to settle on cold battery connect
-  delay(60);
+  // Allow power rails to settle on cold battery connect (increase for stability)
+  delay(200);
+  Serial.println("[BOOT] Power rails settle complete");
 
   // Check if this app is booting in pending-verify state (OTA rollback flow)
   {
@@ -218,6 +231,10 @@ void setup() {
 
   attachInterrupt(digitalPinToInterrupt(PIN_ENC_A), enc_isrA, RISING);
 
+  // Bring up buzzer early to indicate MCU is alive on cold boot
+  Buzzer::begin();
+  Buzzer::beep(60);
+
   // Rotary switch pins
   pinMode(PIN_ROT_P1, INPUT_PULLUP);
   pinMode(PIN_ROT_P2, INPUT_PULLUP);
@@ -243,37 +260,47 @@ void setup() {
   pinMode(PIN_FSPI_MOSI, OUTPUT);
   pinMode(PIN_FSPI_MISO, INPUT);
   SPI.begin(PIN_FSPI_SCK, PIN_FSPI_MISO, PIN_FSPI_MOSI, PIN_TFT_CS);
-  delay(30); // allow peripheral settle
+  delay(60); // allow peripheral settle
 
-  // TFT reset + init (robust: try twice with conservative SPI speed)
+  // TFT reset + init (robust: multiple attempts with very conservative SPI speed)
   auto tft_hard_reset = [&](){
     digitalWrite(PIN_TFT_CS, HIGH); // deselect
-    digitalWrite(PIN_TFT_RST, HIGH); delay(80);
-    digitalWrite(PIN_TFT_RST, LOW ); delay(160);
-    digitalWrite(PIN_TFT_RST, HIGH); delay(180);
+    digitalWrite(PIN_TFT_RST, HIGH); delay(120);
+    digitalWrite(PIN_TFT_RST, LOW ); delay(220);
+    digitalWrite(PIN_TFT_RST, HIGH); delay(240);
   };
 
   tft = new Adafruit_ST7735(&SPI, PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST);
-  // Start with a more conservative SPI speed; some panels are picky on cold boot
-  tft->setSPISpeed(4000000UL);
+  // Start with a very conservative SPI speed; some panels are picky on cold boot
+  tft->setSPISpeed(2000000UL);
 
   bool tftInited = false;
-  for (int attempt = 0; attempt < 2 && !tftInited; ++attempt) {
+  for (int attempt = 0; attempt < 3 && !tftInited; ++attempt) {
     tft_hard_reset();
     tft->initR(INITR_BLACKTAB);
     tft->setRotation(1);
-    // If the first attempt was a cold/slow panel, give an extra breath
-    if (attempt == 0) delay(20);
+    // Give extra breath after first attempt(s)
+    delay(40);
     // Clear to known state before enabling BL
     tft->fillScreen(ST77XX_BLACK);
     tftInited = true; // Adafruit API has no status; assume success after init
+    // If this was not the first try, log it
+    Serial.printf("[TFT] init attempt %d complete\n", attempt+1);
+    // After first successful init, slightly raise SPI for better perf
+    if (attempt == 0) {
+      tft->setSPISpeed(4000000UL);
+    }
   }
+
+  // Record initial init time for optional post-boot kick
+  g_tftInitMs = millis();
 
   // Backlight (8-bit)
   ledcSetup(BL_CHANNEL, 5000, 8);
   ledcAttachPin(PIN_TFT_BL, BL_CHANNEL);
   // Enable backlight only after panel is initialized and cleared
   ledcWrite(BL_CHANNEL, 255);
+  Serial.println("[TFT] Backlight enabled");
 
   // prefs first
   prefs.begin(NVS_NS, false);
@@ -313,9 +340,8 @@ void setup() {
     INA226::begin();
     INA226_SRC::begin();
     RF::begin();
-    Buzzer::begin();
   } else {
-    Buzzer::begin(); // keep buzzer available for feedback if needed
+    // Buzzer already initialized; keep available for feedback
   }
 
   // Auto-join Wi-Fi (non-blocking)
@@ -334,7 +360,10 @@ void setup() {
     protector.begin(&prefs);
     ui->setFaultMask(computeFaultMask());
     ui->showStatus(tele);
+    g_uiBootDrawn = true; // first frame drawn successfully
   }
+
+  Serial.println("[BOOT] setup() complete");
 }
 
 void loop() {
@@ -376,6 +405,33 @@ void loop() {
 
   ui->setFaultMask(computeFaultMask());
   ui->tick(tele);
+
+  // Optional: if the panel still ended up white on true cold boot, perform one deferred re-init
+  do {
+    // Only perform deferred kick if we failed to draw the first UI frame by 1.5s
+    if (!g_uiBootDrawn && !g_tftKicked && (millis() - g_tftInitMs) > 1500) {
+      g_tftKicked = true;
+      Serial.println("[TFT] Deferred re-init kick");
+      // Temporarily dim BL to reduce flash
+      ledcWrite(BL_CHANNEL, 0);
+      // Hard reset and init again at safe speed
+      auto tft_hard_reset2 = [&](){
+        digitalWrite(PIN_TFT_CS, HIGH);
+        digitalWrite(PIN_TFT_RST, HIGH); delay(100);
+        digitalWrite(PIN_TFT_RST, LOW ); delay(180);
+        digitalWrite(PIN_TFT_RST, HIGH); delay(200);
+      };
+      tft_hard_reset2();
+      tft->setSPISpeed(2000000UL);
+      tft->initR(INITR_BLACKTAB);
+      tft->setRotation(1);
+      tft->fillScreen(ST77XX_BLACK);
+      ledcWrite(BL_CHANNEL, 255);
+      // Force a full UI redraw
+      ui->showStatus(tele);
+      Serial.println("[TFT] Deferred re-init done");
+    }
+  } while (0);
 
   // If we booted a new OTA image in PENDING_VERIFY, mark it valid after a short stable run
   if (g_otaPendingVerify) {
