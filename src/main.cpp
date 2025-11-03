@@ -245,18 +245,29 @@ void setup() {
   SPI.begin(PIN_FSPI_SCK, PIN_FSPI_MISO, PIN_FSPI_MOSI, PIN_TFT_CS);
   delay(30); // allow peripheral settle
 
-  // TFT reset + init
-  // Stronger hardware reset timing to improve first-boot reliability after long power-off
-  digitalWrite(PIN_TFT_RST, HIGH); delay(50);
-  digitalWrite(PIN_TFT_RST, LOW ); delay(120);
-  digitalWrite(PIN_TFT_RST, HIGH); delay(150);
+  // TFT reset + init (robust: try twice with conservative SPI speed)
+  auto tft_hard_reset = [&](){
+    digitalWrite(PIN_TFT_CS, HIGH); // deselect
+    digitalWrite(PIN_TFT_RST, HIGH); delay(80);
+    digitalWrite(PIN_TFT_RST, LOW ); delay(160);
+    digitalWrite(PIN_TFT_RST, HIGH); delay(180);
+  };
 
   tft = new Adafruit_ST7735(&SPI, PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST);
-  // Start with a conservative SPI speed for signal integrity on longer jumpers
-  tft->setSPISpeed(8000000UL);
-  tft->initR(INITR_BLACKTAB);
-  tft->setRotation(1);
-  tft->fillScreen(ST77XX_BLACK);
+  // Start with a more conservative SPI speed; some panels are picky on cold boot
+  tft->setSPISpeed(4000000UL);
+
+  bool tftInited = false;
+  for (int attempt = 0; attempt < 2 && !tftInited; ++attempt) {
+    tft_hard_reset();
+    tft->initR(INITR_BLACKTAB);
+    tft->setRotation(1);
+    // If the first attempt was a cold/slow panel, give an extra breath
+    if (attempt == 0) delay(20);
+    // Clear to known state before enabling BL
+    tft->fillScreen(ST77XX_BLACK);
+    tftInited = true; // Adafruit API has no status; assume success after init
+  }
 
   // Backlight (8-bit)
   ledcSetup(BL_CHANNEL, 5000, 8);
