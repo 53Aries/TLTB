@@ -298,9 +298,9 @@ void setup() {
   // Backlight (8-bit)
   ledcSetup(BL_CHANNEL, 5000, 8);
   ledcAttachPin(PIN_TFT_BL, BL_CHANNEL);
-  // Enable backlight only after panel is initialized and cleared
-  ledcWrite(BL_CHANNEL, 255);
-  Serial.println("[TFT] Backlight enabled");
+  // Keep backlight OFF; DisplayUI will ramp it up after splash
+  ledcWrite(BL_CHANNEL, 0);
+  Serial.println("[TFT] Backlight PWM ready (OFF)");
 
   // prefs first
   prefs.begin(NVS_NS, false);

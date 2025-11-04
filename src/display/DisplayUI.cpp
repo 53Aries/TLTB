@@ -171,7 +171,8 @@ void DisplayUI::attachBrightnessSetter(std::function<void(uint8_t)> fn){ _setBri
 
 void DisplayUI::begin(Preferences& p){
   _prefs = &p;
-  if (_blPin >= 0) { pinMode(_blPin, OUTPUT); digitalWrite(_blPin, HIGH); }
+  // Backlight is PWM-controlled by main via _setBrightness; don't force pin HIGH here.
+  if (_blPin >= 0) { pinMode(_blPin, OUTPUT); }
   _tft->setTextWrap(false);
   _tft->fillScreen(ST77XX_BLACK);
 
@@ -185,8 +186,8 @@ void DisplayUI::begin(Preferences& p){
   pinMode(PIN_ROT_P7, INPUT_PULLUP);
   pinMode(PIN_ROT_P8, INPUT_PULLUP);
 
-  // Apply brightness at max (menu removed; keep at full by default)
-  if (_setBrightness) _setBrightness(255);
+  // Start with backlight OFF to avoid 3V3 surge; we'll ramp after splash
+  if (_setBrightness) _setBrightness(0);
 
   // Load persisted UI mode (default HD)
   _mode = _prefs->getUChar(KEY_UI_MODE, 0);
@@ -198,7 +199,13 @@ void DisplayUI::begin(Preferences& p){
   _tft->setCursor(10, 38); _tft->print("Swanger Innovations");
   _tft->setTextSize(2);
   _tft->setCursor(26, 58); _tft->print("TLTB");
-  delay(900);
+  // Backlight ramp during splash (~450ms)
+  if (_setBrightness) {
+    for (int b = 0; b <= 255; b += 12) { _setBrightness((uint8_t)b); delay(18); }
+    _setBrightness(255);
+  } else {
+    delay(450);
+  }
   _tft->fillScreen(ST77XX_BLACK);
 }
 
