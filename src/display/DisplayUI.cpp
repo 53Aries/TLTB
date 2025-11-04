@@ -171,8 +171,7 @@ void DisplayUI::attachBrightnessSetter(std::function<void(uint8_t)> fn){ _setBri
 
 void DisplayUI::begin(Preferences& p){
   _prefs = &p;
-  // Backlight is PWM-controlled by main via _setBrightness; don't force pin HIGH here.
-  if (_blPin >= 0) { pinMode(_blPin, OUTPUT); }
+  // Backlight is PWM-controlled by LEDC in main; do not reconfigure the BL pin here.
   _tft->setTextWrap(false);
   _tft->fillScreen(ST77XX_BLACK);
 
