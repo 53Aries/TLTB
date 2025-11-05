@@ -6,6 +6,9 @@
 extern "C" {
   #include "esp_task_wdt.h"
   #include "esp_ota_ops.h"
+  // For optional brownout disable in diagnostic safe-boot
+  #include "soc/soc.h"
+  #include "soc/rtc_cntl_reg.h"
 }
 
 #include <WiFi.h>
@@ -199,6 +202,18 @@ void setup() {
   Serial.println("[BOOT] TLTB starting...");
   Serial.printf("[BOOT] Reset reason: %d\n", (int)esp_reset_reason());
 
+  // Bring up BACK button first so we can enter safe/diag path ASAP
+  pinMode(PIN_ENC_BACK, INPUT_PULLUP);
+  // Optional: if BACK is held at power-on, disable brownout detector for diagnostics
+  if (digitalRead(PIN_ENC_BACK) == LOW) {
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+    Serial.println("[BOOT] Brownout detector temporarily DISABLED (diag)");
+  }
+
+  // Earliest liveness: short beep right away
+  Buzzer::begin();
+  Buzzer::beep(40);
+
   // TFT & encoder/buttons pins
   // Keep backlight OFF until panel is fully initialized to avoid white-screen on cold power
   pinMode(PIN_TFT_BL, OUTPUT); digitalWrite(PIN_TFT_BL, LOW);
@@ -223,7 +238,7 @@ void setup() {
   pinMode(PIN_ENC_A,    INPUT_PULLUP);
   pinMode(PIN_ENC_B,    INPUT_PULLUP);
   pinMode(PIN_ENC_OK,   INPUT_PULLUP);
-  pinMode(PIN_ENC_BACK, INPUT_PULLUP);
+  // Already configured above for early diag
 
   // Early dev-boot detection: rotary at position 8 and BACK held during power-on
   pinMode(PIN_ROT_P8, INPUT_PULLUP);
@@ -239,8 +254,7 @@ void setup() {
 
   attachInterrupt(digitalPinToInterrupt(PIN_ENC_A), enc_isrA, RISING);
 
-  // Bring up buzzer early to indicate MCU is alive on cold boot
-  Buzzer::begin();
+  // Secondary confirmation beep to mark progress past inputs init
   Buzzer::beep(60);
 
   // Rotary switch pins
