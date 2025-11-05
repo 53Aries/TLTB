@@ -204,11 +204,9 @@ void setup() {
 
   // Bring up BACK button first so we can enter safe/diag path ASAP
   pinMode(PIN_ENC_BACK, INPUT_PULLUP);
-  // Optional: if BACK is held at power-on, disable brownout detector for diagnostics
-  if (digitalRead(PIN_ENC_BACK) == LOW) {
-    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
-    Serial.println("[BOOT] Brownout detector temporarily DISABLED (diag)");
-  }
+  // Disable brownout detector unconditionally for testing cold-boot behavior
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+  Serial.println("[BOOT] Brownout detector DISABLED (test)");
 
   // Earliest liveness: short beep right away
   Buzzer::begin();
