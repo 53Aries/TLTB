@@ -1,9 +1,19 @@
 #pragma once
 
-// ======================= SPI (FSPI) for TFT =======================
-#define PIN_FSPI_SCK    37 // SCL
-#define PIN_FSPI_MOSI   38 // SDA
-#define PIN_FSPI_MISO   36 // not used, but must be defined
+// ======================= SPI pins for TFT =======================
+// IMPORTANT: On ESP32-S3 N16R8 boards, GPIO35..48 are tied to the Octal Flash/PSRAM (FSPI),
+// including differential clock on 47/48. Avoid connecting external peripherals to 35..48.
+// To minimize disruption for existing hardware, keep legacy pinout by default and allow opting
+// into safer SUBSPI pins via FSPI_SAFE_PINS build flag.
+#ifdef FSPI_SAFE_PINS
+#  define PIN_FSPI_SCK    12
+#  define PIN_FSPI_MOSI   11
+#  define PIN_FSPI_MISO   13 // not used, but must be defined
+#else
+#  define PIN_FSPI_SCK    37 // legacy
+#  define PIN_FSPI_MOSI   38 // legacy
+#  define PIN_FSPI_MISO   36 // legacy (not used, but must be defined)
+#endif
 
 // ======================= Display (ST7735S) =======================
 #define PIN_TFT_CS      41
@@ -60,7 +70,12 @@ static const int RELAY_PIN[] = {
 };
 
 // ======================= Buzzer =======================
-#define PIN_BUZZER      35
+// Allow safer pin via FSPI_SAFE_PINS, keep legacy by default to match existing PCB wiring.
+#ifdef FSPI_SAFE_PINS
+#  define PIN_BUZZER      10
+#else
+#  define PIN_BUZZER      35
+#endif
 
 // ======================= RF (SYN480R Receiver) =======================
 // DATA pin from SYN480R — must be level-shifted to 3.3 V
