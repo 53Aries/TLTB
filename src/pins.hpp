@@ -16,10 +16,19 @@
 #endif
 
 // ======================= Display (ST7735S) =======================
+#ifdef FSPI_SAFE_PINS
+// Remap all TFT control pins away from FSPI (35..48). These do not need to be connected
+// if the TFT is unplugged; mapping ensures we never drive FSPI lines.
+#define PIN_TFT_CS      25
+#define PIN_TFT_DC      26
+#define PIN_TFT_RST     27
+#define PIN_TFT_BL      28
+#else
 #define PIN_TFT_CS      41
 #define PIN_TFT_DC      40
 #define PIN_TFT_RST     39
 #define PIN_TFT_BL      42
+#endif
 #define PIN_TFT_BLK     PIN_TFT_BL   // alias for code paths that use BLK
 
 // ======================= Rotary Encoder =======================
