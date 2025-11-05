@@ -29,8 +29,15 @@
 #define PIN_ROT_P8      18  // Aux
 
 // ======================= I²C Bus (INA226 modules) =======================
-#define PIN_I2C_SDA     47
-#define PIN_I2C_SCL     48
+// Note: ESP32-S3 GPIO47/48 are input-only on many modules and are not suitable for I2C master drive.
+// Provide an alternate pin option (recommended: GPIO8/9) that can actively pull low.
+#ifdef I2C_ALT_PINS
+#  define PIN_I2C_SDA   8
+#  define PIN_I2C_SCL   9
+#else
+#  define PIN_I2C_SDA   47
+#  define PIN_I2C_SCL   48
+#endif
 
 // ======================= Relays (active-low) =======================
 #define PIN_RELAY_LH       8   // Left Turn

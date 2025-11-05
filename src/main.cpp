@@ -198,7 +198,11 @@ static uint32_t computeFaultMask(){
 void setup() {
   esp_task_wdt_deinit();
 
-  // Bring up Serial early for boot diagnostics
+  // Earliest liveness before any USB/Serial init
+  Buzzer::begin();
+  Buzzer::beep(40);
+
+  // Bring up Serial early for boot diagnostics (but after first beep)
   Serial.begin(115200);
   delay(10);
   Serial.println();
@@ -211,9 +215,7 @@ void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
   Serial.println("[BOOT] Brownout detector DISABLED (test)");
 
-  // Earliest liveness: short beep right away
-  Buzzer::begin();
-  Buzzer::beep(40);
+  // Secondary liveness beeps are handled below
 
   // Double-reset safe mode: if device is reset within ~1.2s window, enter dev/safe boot
   if (g_drFlag == DR_MAGIC) {
