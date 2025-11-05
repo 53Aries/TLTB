@@ -42,6 +42,9 @@ static bool g_uiBootDrawn = false;
 // Defer peripheral bring-up (INA/RF) to avoid stressing early boot rails
 static bool g_peripInitDone = false;
 static uint32_t g_bootMs = 0;
+// Double-reset detector (RTC memory survives soft resets)
+RTC_DATA_ATTR static uint32_t g_drFlag = 0;
+static constexpr uint32_t DR_MAGIC = 0xDEADBEEF;
 
 // LEDC (backlight)
 static const int BL_CHANNEL = 0;
@@ -211,6 +214,22 @@ void setup() {
   // Earliest liveness: short beep right away
   Buzzer::begin();
   Buzzer::beep(40);
+
+  // Double-reset safe mode: if device is reset within ~1.2s window, enter dev/safe boot
+  if (g_drFlag == DR_MAGIC) {
+    g_devBoot = true;
+    g_drFlag = 0; // consume flag
+    Serial.println("[BOOT] Double-reset detected -> SAFE MODE");
+    // Two quick beeps to signal safe mode
+    delay(80); Buzzer::beep(40); delay(120); Buzzer::beep(40);
+  } else {
+    g_drFlag = DR_MAGIC;
+    // Keep a small window for a second reset
+    delay(1200);
+    g_drFlag = 0;
+    // Progress beep after window
+    Buzzer::beep(40);
+  }
 
   // TFT & encoder/buttons pins
   // Keep backlight OFF until panel is fully initialized to avoid white-screen on cold power
@@ -393,7 +412,7 @@ void loop() {
 
   // Initialize sensors and RF after a short delay to avoid cold-boot rail dips
   if (!g_peripInitDone && !g_devBoot) {
-    if ((millis() - g_bootMs) > 1200) { // ~1.2s holdoff
+    if ((millis() - g_bootMs) > 3000) { // extend holdoff to ~3s for stability
       Serial.println("[BOOT] Bringing up sensors (INA226) and RF...");
       INA226::begin();
       INA226_SRC::begin();
