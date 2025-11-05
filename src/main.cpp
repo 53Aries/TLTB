@@ -36,6 +36,9 @@ static bool g_startupGuard = false; // Prevents relay activation until 1p8t is c
 static uint32_t g_tftInitMs = 0;
 static bool g_tftKicked = false;
 static bool g_uiBootDrawn = false;
+// Defer peripheral bring-up (INA/RF) to avoid stressing early boot rails
+static bool g_peripInitDone = false;
+static uint32_t g_bootMs = 0;
 
 // LEDC (backlight)
 static const int BL_CHANNEL = 0;
@@ -228,6 +231,11 @@ void setup() {
   if (digitalRead(PIN_ENC_BACK) == LOW && digitalRead(PIN_ROT_P8) == LOW) {
     g_devBoot = true;
   }
+  // Also allow BACK-only to trigger safe/dev boot when selector is absent
+  if (digitalRead(PIN_ENC_BACK) == LOW) {
+    g_devBoot = true;
+    Serial.println("[BOOT] Safe mode: BACK held at power-on");
+  }
 
   attachInterrupt(digitalPinToInterrupt(PIN_ENC_A), enc_isrA, RISING);
 
@@ -335,13 +343,10 @@ void setup() {
     ui->setDevMenuOnly(true); // restrict menu to Wi‑Fi/OTA and start in menu
   }
 
-  // sensors + RF (skip in dev-boot)
-  if (!g_devBoot) {
-    INA226::begin();
-    INA226_SRC::begin();
-    RF::begin();
-  } else {
-    // Buzzer already initialized; keep available for feedback
+  // Defer INA/RF bring-up to loop() after short delay to improve cold boot stability
+  g_bootMs = millis();
+  if (g_devBoot) {
+    Serial.println("[BOOT] Dev/Safe boot: deferring sensors and RF (skipped)");
   }
 
   // Auto-join Wi-Fi (non-blocking)
@@ -372,6 +377,19 @@ void loop() {
     ui->tick(tele);
     delay(1);
     return;
+  }
+
+  // Initialize sensors and RF after a short delay to avoid cold-boot rail dips
+  if (!g_peripInitDone && !g_devBoot) {
+    if ((millis() - g_bootMs) > 1200) { // ~1.2s holdoff
+      Serial.println("[BOOT] Bringing up sensors (INA226) and RF...");
+      INA226::begin();
+      INA226_SRC::begin();
+      RF::begin();
+      g_peripInitDone = true;
+      Buzzer::beep(50);
+      Serial.println("[BOOT] Sensors/RF init complete");
+    }
   }
 
   // Read telemetry if present
