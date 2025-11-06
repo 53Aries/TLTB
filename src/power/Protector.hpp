@@ -34,6 +34,11 @@ private:
   const uint32_t _lvpTripMs = 200;   // V below threshold for 200ms
   const uint32_t _ocpTripMs = 25;    // I above limit for 25ms
 
+  // Auto-clear LVP when voltage recovers above threshold with hysteresis
+  uint32_t _aboveClearStartMs = 0;         // begin time of healthy-above-LVP window
+  const uint32_t _lvpClearMs   = 800;      // require 0.8s healthy before clearing latch
+  const float    _lvpClearHyst = 0.3f;     // volts above cutoff required to clear
+
   // latches
   bool  _lvpLatched = false;
   bool  _ocpLatched = false;

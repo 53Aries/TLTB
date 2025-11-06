@@ -71,6 +71,22 @@ void Protector::tick(float srcV, float loadA, uint32_t nowMs) {
     _overStartMs = 0;
   }
 
+  // -------- LVP auto-clear when voltage healthy for a while --------
+  if (_lvpLatched) {
+    // Require srcV to be sufficiently above cutoff (with hysteresis) for a period
+    if (haveV && srcV >= (_lvp + _lvpClearHyst)) {
+      if (_aboveClearStartMs == 0) _aboveClearStartMs = nowMs;
+      if ((nowMs - _aboveClearStartMs) >= _lvpClearMs) {
+        _lvpLatched = false;
+        _aboveClearStartMs = 0;
+      }
+    } else {
+      _aboveClearStartMs = 0; // lost healthy condition; restart timer
+    }
+  } else {
+    _aboveClearStartMs = 0;   // not latched; keep clear window idle
+  }
+
   // -------- Continuous enforcement while latched --------
   // Previously this only cut once (gated by _cutsent). That allowed relays to be re-enabled later.
   // Now, while *either* latch is active, we force all relays OFF on every tick.
