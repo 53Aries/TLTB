@@ -20,6 +20,9 @@ public:
   float lvp() const { return _lvp; }
   float ocp() const { return _ocp; }
 
+  // Update OCP limit at runtime (clamped to safety range)
+  void setOcpLimit(float amps);
+
 private:
   void tripLvp();
   void tripOcp();
@@ -27,6 +30,10 @@ private:
   Preferences* _prefs = nullptr;
   float _lvp = 15.5f;   // volts
   float _ocp = 20.0f;   // amps
+
+  // Limits for configuration
+  static constexpr float OCP_MIN_A = 5.0f;
+  static constexpr float OCP_MAX_A = 30.0f;
 
   // debounce / timing
   uint32_t _belowStartMs = 0;

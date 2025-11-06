@@ -339,10 +339,11 @@ void DisplayUI::showStatus(const Telemetry& t){
         _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
         _tft->print("Load: ");
         // Choose value color: <=20A green, 20-25A yellow, >25A red
-        float shownA = fabsf(t.loadA);
-        uint16_t valColor = ST77XX_GREEN;
-        if (shownA > 25.0f) valColor = ST77XX_RED;
-        else if (shownA > 20.0f) valColor = ST77XX_YELLOW;
+  float shownA = fabsf(t.loadA);
+  if (shownA > 30.0f) shownA = 30.0f; // cap display at 30A absolute max
+        uint16_t valColor = ST77XX_GREEN;            // < 20A
+        if (shownA >= 25.0f)      valColor = ST77XX_RED;     // 25–30A (and above)
+        else if (shownA >= 20.0f) valColor = ST77XX_YELLOW;  // 20–<25A
         _tft->setTextColor(valColor, ST77XX_BLACK);
         _tft->printf("%4.2f A", shownA);
       }
@@ -445,10 +446,11 @@ void DisplayUI::showStatus(const Telemetry& t){
       // Draw label in white then value in color
       _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
       _tft->print("Load: ");
-      float shownA = fabsf(t.loadA);
-      uint16_t valColor = ST77XX_GREEN;
-      if (shownA > 25.0f) valColor = ST77XX_RED;
-      else if (shownA > 20.0f) valColor = ST77XX_YELLOW;
+  float shownA = fabsf(t.loadA);
+  if (shownA > 30.0f) shownA = 30.0f; // cap display at 30A absolute max
+      uint16_t valColor = ST77XX_GREEN;            // < 20A
+      if (shownA >= 25.0f)      valColor = ST77XX_RED;     // 25–30A (and above)
+      else if (shownA >= 20.0f) valColor = ST77XX_YELLOW;  // 20–<25A
       _tft->setTextColor(valColor, ST77XX_BLACK);
       _tft->printf("%4.2f A", shownA);
     }

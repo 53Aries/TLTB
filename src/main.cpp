@@ -281,7 +281,7 @@ void setup() {
     .onOtaStart  = nullptr,
     .onOtaEnd    = nullptr,
     .onLvCutChanged = nullptr,
-    .onOcpChanged   = nullptr,
+  .onOcpChanged   = [](float a){ protector.setOcpLimit(a); },
     .onRfLearn      = [](int idx){ return RF::learn(idx); },
     .getLvpBypass   = [](){ return protector.lvpBypass(); },
     .setLvpBypass   = [](bool on){ protector.setLvpBypass(on); },

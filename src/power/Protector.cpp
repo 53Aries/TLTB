@@ -15,10 +15,19 @@ void Protector::begin(Preferences* prefs, float lvpDefault, float ocpDefault) {
     _lvp = lvpDefault;
     _ocp = ocpDefault;
   }
+  // Enforce OCP bounds on startup to protect against out-of-range saved values
+  if (_ocp < OCP_MIN_A) _ocp = OCP_MIN_A;
+  if (_ocp > OCP_MAX_A) _ocp = OCP_MAX_A;
   _lvpLatched = _ocpLatched = false;
   _belowStartMs = _overStartMs = 0;
   _cutsent = false;
   _lvpBypass = false;  // not persisted (intentional: safe default on power-up)
+}
+
+void Protector::setOcpLimit(float amps) {
+  if (amps < OCP_MIN_A) amps = OCP_MIN_A;
+  if (amps > OCP_MAX_A) amps = OCP_MAX_A;
+  _ocp = amps;
 }
 
 void Protector::setLvpBypass(bool on) {
