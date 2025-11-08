@@ -283,6 +283,8 @@ void setup() {
     .onLvCutChanged = nullptr,
   .onOcpChanged   = [](float a){ protector.setOcpLimit(a); },
   .onOutvChanged  = [](float v){ protector.setOutvCutoff(v); },
+  .getOutvBypass  = [](){ return protector.outvBypass(); },
+  .setOutvBypass  = [](bool on){ protector.setOutvBypass(on); },
     .onRfLearn      = [](int idx){ return RF::learn(idx); },
     .getLvpBypass   = [](){ return protector.lvpBypass(); },
     .setLvpBypass   = [](bool on){ protector.setLvpBypass(on); },
@@ -368,6 +370,21 @@ void loop() {
 
   ui->setFaultMask(computeFaultMask());
   ui->tick(tele);
+
+  // OUTV modal (requires acknowledge similar to OCP)
+  static bool prevOutv = false;
+  static bool needOutvAck = false;
+  bool outvNow = protector.isOutvLatched();
+  if (outvNow && !prevOutv) needOutvAck = true;
+  prevOutv = outvNow;
+
+  if (needOutvAck) {
+    (void)ui->protectionAlarm("OUTPUT VOLTAGE", "Buck output fault.", "Press OK to clear latch");
+    protector.clearLatches();
+    tele.lvpLatched = tele.ocpLatched = tele.outvLatched = false;
+    needOutvAck = false;
+    ui->showStatus(tele);
+  }
 
   // If we booted a new OTA image in PENDING_VERIFY, mark it valid after a short stable run
   if (g_otaPendingVerify) {

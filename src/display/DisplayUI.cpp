@@ -27,6 +27,7 @@ static const char* const kMenuItems[] = {
   "LVP Bypass",
   "Set OCP Limit",
   "Set Output V Cutoff",
+  "OutV Bypass",
   "12V System",
   "Learn RF Button",
   "Clear RF Remotes",
@@ -164,6 +165,8 @@ DisplayUI::DisplayUI(const DisplayCtor& c)
   _ocpChanged(c.onOcpChanged),
   _outvChanged(c.onOutvChanged),
   _rfLearn(c.onRfLearn),
+  _getOutvBypass(c.getOutvBypass),
+  _setOutvBypass(c.setOutvBypass),
   _getLvpBypass(c.getLvpBypass),
   _setLvpBypass(c.setLvpBypass),
   _getStartupGuard(c.getStartupGuard) {}
@@ -383,11 +386,18 @@ void DisplayUI::showStatus(const Telemetry& t){
         _tft->print(t.lvpLatched? "ACTIVE":"ok");
       }
 
-  // Line 6: Output Voltage status
+      // Line 6: Output Voltage status
   _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
   _tft->setCursor(4, yOutv);
-  _tft->print("OUTV: ");
-  _tft->print(t.outvLatched ? "ACTIVE" : "ok");
+      _tft->print("OUTV: ");
+      bool outvBy = _getOutvBypass ? _getOutvBypass() : false;
+      if (outvBy) {
+        _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+        _tft->print("BYPASS");
+        _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      } else {
+        _tft->print(t.outvLatched ? "ACTIVE" : "ok");
+      }
 
   // Next line: OCP status (separate line)
       _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
@@ -524,7 +534,14 @@ void DisplayUI::showStatus(const Telemetry& t){
     _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     _tft->setCursor(4, yOutv);
     _tft->print("OUTV: ");
-    _tft->print(t.outvLatched ? "ACTIVE" : "ok");
+    bool outvBy = _getOutvBypass ? _getOutvBypass() : false;
+    if (outvBy) {
+      _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+      _tft->print("BYPASS");
+      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    } else {
+      _tft->print(t.outvLatched ? "ACTIVE" : "ok");
+    }
   }
 
   // OCP status changed?
@@ -728,7 +745,8 @@ void DisplayUI::handleMenuSelect(int idx){
     case 1: toggleLvpBypass(); break;                       // LVP Bypass
     case 2: adjustOcpLimit(); break;                        // Set OCP Limit
   case 3: adjustOutputVCutoff(); break;                   // Set Output V Cutoff
-  case 4: {                                               // 12V System
+  case 4: toggleOutvBypass(); break;                      // OutV Bypass
+  case 5: {                                               // 12V System
       // 12V System toggle UI (no-flicker incremental updates)
       _tft->fillScreen(ST77XX_BLACK);
       _tft->setTextSize(1);
@@ -764,7 +782,7 @@ void DisplayUI::handleMenuSelect(int idx){
       }
       g_forceHomeFull = true;
     } break;
-  case 5: {                                               // Learn RF Button
+  case 6: {                                               // Learn RF Button
       // RF Learn (simple modal)
       int sel = 0, lastSel = -1;
       _tft->fillScreen(ST77XX_BLACK);
@@ -827,7 +845,7 @@ void DisplayUI::handleMenuSelect(int idx){
         delay(12);
       }
     } break;
-  case 6: {                                               // Clear RF Remotes
+  case 7: {                                               // Clear RF Remotes
       // Clear RF Remotes (confirmation)
       _tft->fillScreen(ST77XX_BLACK);
   _tft->setTextSize(1);
@@ -841,10 +859,10 @@ void DisplayUI::handleMenuSelect(int idx){
         delay(10);
       }
     } break;
-  case 7: wifiScanAndConnectUI(); break;                  // Wi-Fi Connect
-  case 8: wifiForget(); break;                            // Wi-Fi Forget
-  case 9: runOta(); break;                                // OTA Update
-  case 10: showSystemInfo(); break;                       // System Info
+  case 8: wifiScanAndConnectUI(); break;                  // Wi-Fi Connect
+  case 9: wifiForget(); break;                            // Wi-Fi Forget
+  case 10: runOta(); break;                               // OTA Update
+  case 11: showSystemInfo(); break;                       // System Info
   }
 }
 
@@ -914,6 +932,24 @@ void DisplayUI::toggleLvpBypass(){
 }
 
 // Scan UI removed
+
+// ---------- Instant, non-blocking OUTV bypass toggle ----------
+void DisplayUI::toggleOutvBypass(){
+  bool on = _getOutvBypass ? _getOutvBypass() : false;
+  bool newState = !on;
+  if (_setOutvBypass) _setOutvBypass(newState);
+
+  // Brief confirmation splash (short toast), then return.
+  _tft->fillScreen(ST77XX_BLACK);
+  _tft->setTextSize(1);
+  _tft->setCursor(6,10); _tft->println("OutV Bypass");
+  _tft->setCursor(6,28); _tft->print("State: ");
+  _tft->print(newState ? "ON" : "OFF");
+  delay(450);
+
+  // Ensure Home will fully repaint after leaving this settings page
+  g_forceHomeFull = true;
+}
 
 // ================================================================
 // OCP modal

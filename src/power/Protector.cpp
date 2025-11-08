@@ -28,6 +28,7 @@ void Protector::begin(Preferences* prefs, float lvpDefault, float ocpDefault) {
   _outvBelowStartMs = 0;
   _cutsent = false;
   _lvpBypass = false;  // not persisted (intentional: safe default on power-up)
+  _outvBypass = false;
 }
 
 void Protector::setOcpLimit(float amps) {
@@ -67,6 +68,14 @@ void Protector::clearLatches() {
   _cutsent = false;
 }
 
+void Protector::setOutvBypass(bool on) {
+  _outvBypass = on;
+  if (on) {
+    _outvLatched = false; // clear existing OUTV latch when bypassed
+    _outvBelowStartMs = 0;
+  }
+}
+
 void Protector::setOutvCutoff(float v) {
   if (v < OUTV_MIN_V) v = OUTV_MIN_V;
   if (v > OUTV_MAX_V) v = OUTV_MAX_V;
@@ -102,7 +111,7 @@ void Protector::tick(float srcV, float loadA, float outV, uint32_t nowMs) {
         _outvLatched = true;
         for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
       }
-    } else if (outV < _outvCut) {
+    } else if (!_outvBypass && outV < _outvCut) {
       if (_outvBelowStartMs == 0) _outvBelowStartMs = nowMs;
       if (!_outvLatched && (nowMs - _outvBelowStartMs) >= _outvTripMs) {
         _outvLatched = true;

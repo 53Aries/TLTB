@@ -20,6 +20,8 @@ struct DisplayCtor {
   std::function<void(float)> onLvCutChanged;
   std::function<void(float)> onOcpChanged;
   std::function<void(float)> onOutvChanged;   // Output V cutoff changed
+  std::function<bool()>      getOutvBypass;   // OUTV bypass getter
+  std::function<void(bool)>  setOutvBypass;   // OUTV bypass setter
   std::function<bool(int)>   onRfLearn;
 
   // NEW: LVP bypass accessors provided by main/protector
@@ -76,6 +78,7 @@ private:
   void adjustLvCutoff();
   void adjustOcpLimit();
   void adjustOutputVCutoff();
+  void toggleOutvBypass();          // NEW: Output V bypass toggle
   void toggleLvpBypass();          // NEW
   void wifiScanAndConnectUI();
   void wifiForget();
@@ -86,6 +89,7 @@ private:
   int8_t readStep(); bool okPressed(); bool backPressed();
   void   saveLvCut(float v);
   void   saveMode(uint8_t m);
+  void   saveOutvCut(float v);
 
   // fault banner (scrolling)
   void   rebuildFaultText();        // build _faultText when mask changes
@@ -102,9 +106,10 @@ private:
   const char* _ns; const char* _kLvCut; const char* _kSsid; const char* _kPass;
   std::function<float()> _readSrcV, _readLoadA;
   std::function<void()>  _otaStart, _otaEnd;
-  void   saveOutvCut(float v);
   std::function<void(float)> _lvChanged, _ocpChanged;
   std::function<void(float)> _outvChanged;
+  std::function<bool()> _getOutvBypass;
+  std::function<void(bool)> _setOutvBypass;
   std::function<bool(int)> _rfLearn;
   std::function<bool()> _getLvpBypass;
   std::function<void(bool)> _setLvpBypass;

@@ -25,6 +25,9 @@ public:
   void setOcpLimit(float amps);
   void setOutvCutoff(float v);
   float outvCutoff() const { return _outvCut; }
+  // Bypass control for Output Voltage protection
+  void setOutvBypass(bool on);
+  bool outvBypass() const { return _outvBypass; }
 
 private:
   void tripLvp();
@@ -57,6 +60,7 @@ private:
   bool  _lvpLatched = false;
   bool  _ocpLatched = false;
   bool  _outvLatched = false;
+  bool  _outvBypass = false;  // when true, OUTV low trips are ignored (hard bounds still enforced)
 
   // LVP bypass: when true, LVP never trips (and existing LVP latch is cleared)
   bool  _lvpBypass = false;
