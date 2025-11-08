@@ -719,6 +719,10 @@ void DisplayUI::tick(const Telemetry& t){
       (!_inMenu) && (
         (isnan(t.loadA) != isnan(_last.loadA)) ||
         (!isnan(t.loadA) && fabsf(t.loadA - _last.loadA) > 0.02f) ||
+        (isnan(t.srcV) != isnan(_last.srcV)) ||
+        (!isnan(t.srcV) && !isnan(_last.srcV) && fabsf(t.srcV - _last.srcV) > 0.05f) ||
+        (isnan(t.outV) != isnan(_last.outV)) ||
+        (!isnan(t.outV) && !isnan(_last.outV) && fabsf(t.outV - _last.outV) > 0.05f) ||
         (t.lvpLatched != _last.lvpLatched) ||
         (t.ocpLatched != _last.ocpLatched) ||
         _needRedraw
