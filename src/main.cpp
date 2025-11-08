@@ -351,51 +351,78 @@ void loop() {
   // Buzzer fault pattern tick (priority over one-shot)
   Buzzer::tick(tele.lvpLatched || tele.ocpLatched || tele.outvLatched, millis());
 
-  // OCP modal
-  static bool prevOcp = false;
-  static bool needOcpAck = false;
-  bool ocpNow = protector.isOcpLatched();
-  if (ocpNow && !prevOcp) needOcpAck = true;
-  prevOcp = ocpNow;
-
-  if (needOcpAck) {
-    (void)ui->protectionAlarm("OCP TRIPPED", "Over-current detected.", "Press OK to clear");
-    protector.clearOcpLatch();
-    tele.ocpLatched = false;
-    needOcpAck = false;
-    ui->showStatus(tele);
+  // OCP modal (single-shot per continuous fault; re-armed after healthy period)
+  static bool     ocpAcked = false;           // has the current OCP fault cycle been acknowledged?
+  static uint32_t ocpHealthySince = 0;        // ms timestamp when OCP became healthy (unlatched)
+  {
+    bool ocpLatched = protector.isOcpLatched();
+    if (ocpLatched) {
+      ocpHealthySince = 0; // fault persists; not healthy
+      if (!ocpAcked) {
+        (void)ui->protectionAlarm("OCP TRIPPED", "Over-current detected.", "Press OK to clear");
+        // Allow user to attempt resume: clear the OCP latch on acknowledge
+        protector.clearOcpLatch();
+        tele.ocpLatched = false;
+        ocpAcked = true;  // suppress further pop-ups until fault truly resolves
+        ui->showStatus(tele);
+      }
+    } else {
+      // Not latched: start/continue healthy timer and re-arm after stable healthy window
+      uint32_t now = millis();
+      if (ocpHealthySince == 0) ocpHealthySince = now;
+      if (now - ocpHealthySince >= 1000) {
+        ocpAcked = false; // allow next trigger to show again
+      }
+    }
   }
 
   ui->setFaultMask(computeFaultMask());
   ui->tick(tele);
 
-  // OUTV modal (requires acknowledge similar to OCP)
-  static bool prevOutv = false;
-  static bool needOutvAck = false;
-  bool outvNow = protector.isOutvLatched();
-  if (outvNow && !prevOutv) needOutvAck = true;
-  prevOutv = outvNow;
-
-  if (needOutvAck) {
-    (void)ui->protectionAlarm("OUTPUT VOLTAGE", "Buck output fault.", "Press OK to clear");
-    protector.clearOutvLatch();
-    tele.outvLatched = false;
-    needOutvAck = false;
-    ui->showStatus(tele);
+  // OUTV modal (single-shot per continuous fault; re-armed after healthy period)
+  static bool     outvAcked = false;
+  static uint32_t outvHealthySince = 0;
+  {
+    bool outvLatched = protector.isOutvLatched();
+    if (outvLatched) {
+      outvHealthySince = 0;
+      if (!outvAcked) {
+        (void)ui->protectionAlarm("OUTPUT VOLTAGE", "Buck output fault.", "Press OK to clear");
+        // Allow user to attempt resume: clear OUTV latch on acknowledge (hard bounds still enforced in Protector)
+        protector.clearOutvLatch();
+        tele.outvLatched = false;
+        outvAcked = true;
+        ui->showStatus(tele);
+      }
+    } else {
+      uint32_t now = millis();
+      if (outvHealthySince == 0) outvHealthySince = now;
+      if (now - outvHealthySince >= 1000) {
+        outvAcked = false;
+      }
+    }
   }
 
-  // LVP modal (new)
-  static bool prevLvp = false;
-  static bool needLvpAck = false;
-  bool lvpNow = protector.isLvpLatched();
-  if (lvpNow && !prevLvp) needLvpAck = true;
-  prevLvp = lvpNow;
-  if (needLvpAck) {
-    (void)ui->protectionAlarm("LVP TRIPPED", "Input voltage low.", "Press OK to clear");
-    protector.clearLvpLatch();
-    tele.lvpLatched = false;
-    needLvpAck = false;
-    ui->showStatus(tele);
+  // LVP modal (single-shot; do NOT clear the latch on acknowledge so the home screen shows ACTIVE)
+  static bool     lvpAcked = false;
+  static uint32_t lvpHealthySince = 0;
+  {
+    bool lvpLatched = protector.isLvpLatched();
+    if (lvpLatched) {
+      lvpHealthySince = 0;
+      if (!lvpAcked) {
+        (void)ui->protectionAlarm("LVP TRIPPED", "Input voltage low.", "Press OK to continue");
+        // Keep LVP latched so relays remain blocked and status shows ACTIVE
+        lvpAcked = true;
+        ui->showStatus(tele);
+      }
+    } else {
+      uint32_t now = millis();
+      if (lvpHealthySince == 0) lvpHealthySince = now;
+      if (now - lvpHealthySince >= 1000) {
+        lvpAcked = false;
+      }
+    }
   }
 
   // If we booted a new OTA image in PENDING_VERIFY, mark it valid after a short stable run
