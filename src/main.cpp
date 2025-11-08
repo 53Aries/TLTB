@@ -394,7 +394,7 @@ void loop() {
     if (outvLatched) {
       outvHealthySince = 0;
       if (!outvAcked) {
-        (void)ui->protectionAlarm("OUTPUT VOLTAGE", "Buck output fault.", "Press OK to clear");
+  (void)ui->protectionAlarm("OUTPUT VOLTAGE", "12V output low.", "Possible internal fault");
         // Allow user to attempt resume: clear OUTV latch on acknowledge (hard bounds still enforced in Protector)
         protector.clearOutvLatch();
         tele.outvLatched = false;
