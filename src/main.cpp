@@ -349,7 +349,14 @@ void loop() {
   tele.ocpLatched   = protector.isOcpLatched();
   tele.outvLatched  = protector.isOutvLatched();
   // Buzzer fault pattern tick (priority over one-shot)
-  Buzzer::tick(tele.lvpLatched || tele.ocpLatched || tele.outvLatched, millis());
+  // Suppress buzzer for LVP/OUTV when those protections are bypassed
+  {
+    bool beepFault = false;
+    if (tele.ocpLatched) beepFault = true;
+    if (tele.lvpLatched && !protector.lvpBypass()) beepFault = true;
+    if (tele.outvLatched && !protector.outvBypass()) beepFault = true;
+    Buzzer::tick(beepFault, millis());
+  }
 
   // OCP modal (single-shot per continuous fault; re-armed after healthy period)
   static bool     ocpAcked = false;           // has the current OCP fault cycle been acknowledged?
