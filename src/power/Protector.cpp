@@ -119,26 +119,37 @@ void Protector::tick(float srcV, float loadA, float outV, uint32_t nowMs) {
     _overStartMs = 0;
   }
 
-  // -------- Output Voltage Low (debounced) & hard bounds unless bypassed --------
+  // -------- Output Voltage Fault (dynamic): active only while under cutoff (<_outvCut) or <8V, and if >16V. --------
   if (haveOutV) {
     if (_outvBypass) {
       // Ignore all output voltage trips while bypass is active
       _outvBelowStartMs = 0;
+      _outvLatched = false;
     } else {
-      // Hard instant trips for out-of-bounds extremes
-      if (outV < OUTV_MIN_V || outV > OUTV_MAX_V) {
+      bool hiFault = (outV > OUTV_MAX_V);
+      bool loExtreme = (outV < OUTV_MIN_V);     // <8V
+      bool loSoft    = (outV < _outvCut);       // below configured cutoff (>=8V by construction)
+
+      if (hiFault) {
+        // High-side fault is immediate
         if (!_outvLatched) {
           _outvLatched = true;
           for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
         }
-      } else if (outV < _outvCut) {
+        _outvBelowStartMs = 0;
+      } else if (loExtreme || loSoft) {
+        // Low-side fault: debounce
         if (_outvBelowStartMs == 0) _outvBelowStartMs = nowMs;
-        if (!_outvLatched && (nowMs - _outvBelowStartMs) >= _outvTripMs) {
-          _outvLatched = true;
-          for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+        if ((nowMs - _outvBelowStartMs) >= _outvTripMs) {
+          if (!_outvLatched) {
+            _outvLatched = true;
+            for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+          }
         }
       } else {
-        _outvBelowStartMs = 0; // healthy again; no auto-clear (require manual)
+        // Healthy range (>= cutoff and <= 16V): clear fault immediately
+        _outvBelowStartMs = 0;
+        if (_outvLatched) _outvLatched = false;
       }
     }
   }
