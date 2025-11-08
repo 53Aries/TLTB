@@ -432,6 +432,33 @@ void loop() {
     }
   }
 
+  // Off-current protection: if all relays are OFF (12V system disabled) but load current > 1.0A,
+  // show a high-priority single-shot alert instructing to remove power.
+  static bool     offCurAcked = false;
+  static uint32_t offCurHealthySince = 0;
+  {
+    bool anyOn = false;
+    for (int i = 0; i < (int)R_COUNT; ++i) { if (relayIsOn(i)) { anyOn = true; break; } }
+    bool allOff = !anyOn;
+    bool overCur = (!isnan(tele.loadA)) && (fabsf(tele.loadA) > 1.0f);
+    bool offCurrentFault = allOff && overCur;
+
+    if (offCurrentFault) {
+      offCurHealthySince = 0;
+      if (!offCurAcked) {
+        (void)ui->protectionAlarm("CURRENT DRAW", "REMOVE POWER NOW!", nullptr);
+        offCurAcked = true; // suppress repeated popups until healthy
+        ui->showStatus(tele);
+      }
+    } else {
+      uint32_t now = millis();
+      if (offCurHealthySince == 0) offCurHealthySince = now;
+      if (now - offCurHealthySince >= 1000) {
+        offCurAcked = false;
+      }
+    }
+  }
+
   // If we booted a new OTA image in PENDING_VERIFY, mark it valid after a short stable run
   if (g_otaPendingVerify) {
     if (millis() - g_otaBootMs > 8000) { // ~8 seconds of healthy loop
