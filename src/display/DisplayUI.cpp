@@ -287,7 +287,8 @@ void DisplayUI::showStatus(const Telemetry& t){
   const int yLvp    = y12 + h12 + GAP;
   const int yOutv   = yLvp + hLvp + GAP;
   const int yOcp    = yOutv + hOutv + GAP;
-  const int yHint   = 100;  const int hHint   = 12;
+  // Footer position when fault ticker hidden; we suppress footer entirely if faults present to avoid overlap
+  const int yHintNoTicker = 114;  const int hHint   = 12;
 
   static bool s_inited = false;
   static String s_prevActive;
@@ -322,10 +323,12 @@ void DisplayUI::showStatus(const Telemetry& t){
       _tft->setCursor(4, 75);
       _tft->print("before operation");
       
-      // Footer
-      _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-      _tft->setCursor(4, yHint);
-      _tft->print("OK=Menu  BACK=Home");
+      // Footer only if no fault ticker occupying bottom area
+      if (_faultMask == 0) {
+        _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+        _tft->setCursor(4, yHintNoTicker);
+        _tft->print("OK=Menu  BACK=Home");
+      }
     } else {
       // Normal status display
       // Line 1: MODE (top)
@@ -412,10 +415,12 @@ void DisplayUI::showStatus(const Telemetry& t){
       _tft->print("OCP : ");
       _tft->print(t.ocpLatched ? "ACTIVE" : "ok");
 
-      // Footer
-      _tft->setCursor(4, yHint);
-      _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-      _tft->print("OK=Menu  BACK=Home");
+      // Footer only if no fault ticker
+      if (_faultMask == 0) {
+        _tft->setCursor(4, yHintNoTicker);
+        _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+        _tft->print("OK=Menu  BACK=Home");
+      }
 
       drawFaultTicker(true);
     }
