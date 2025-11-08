@@ -271,16 +271,23 @@ void DisplayUI::showStatus(const Telemetry& t){
   
   // Layout constants for targeted clears
   const int W = 160;
-  // Top MODE row (approx 1.5x via size=2), then Load and Active also at ~1.5x
-  const int yMode   = 6;    const int hMode   = 18;   // size=2 text (~16 px high)
-  const int yLoad   = yMode + hMode + 2;   const int hLoad   = 18;   // size=2
-  const int yActive = yLoad + hLoad + 2;   const int hActive = 18;   // size 1 or 2
-  // Removed InputV: place 12V line directly below Active
-  const int y12     = yActive + hActive + 2; const int h12 = 12;
-  const int yLvp    = y12 + h12 + 2;  const int hLvp    = 12;
-  const int yOutv   = yLvp + hLvp + 2; const int hOutv   = 12;
-  const int yOcp    = yOutv + hOutv + 2; const int hOcp    = 12;
-  const int yHint   = 114;  const int hHint   = 12;
+  // Shrink top rows slightly and reduce spacing to fit all lines above the fault ticker
+  const int GAP     = 1;
+  const int hMode   = 16;  // size=2 text = 16 px
+  const int hLoad   = 16;  // size=2 text = 16 px
+  const int hActive = 16;  // size=2 or 1; reserve for size=2
+  const int h12     = 12;
+  const int hLvp    = 12;
+  const int hOutv   = 12;
+  const int hOcp    = 12;
+  const int yMode   = 4;
+  const int yLoad   = yMode + hMode + GAP;
+  const int yActive = yLoad + hLoad + GAP;
+  const int y12     = yActive + hActive + GAP;
+  const int yLvp    = y12 + h12 + GAP;
+  const int yOutv   = yLvp + hLvp + GAP;
+  const int yOcp    = yOutv + hOutv + GAP;
+  const int yHint   = 100;  const int hHint   = 12;
 
   static bool s_inited = false;
   static String s_prevActive;
