@@ -452,7 +452,7 @@ void loop() {
     if (offCurrentFault) {
       offCurHealthySince = 0;
       if (!offCurAcked) {
-        (void)ui->protectionAlarm("CURRENT DRAW", "REMOVE POWER NOW!", nullptr);
+        (void)ui->protectionAlarm("CURRENT DRAW", "UNEXPECTED CURRENT DRAW", "REMOVE POWER NOW!");
         offCurAcked = true; // suppress repeated popups until healthy
         ui->showStatus(tele);
       }
