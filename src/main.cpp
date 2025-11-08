@@ -3,10 +3,9 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
 
-extern "C" {
-  #include "esp_task_wdt.h"
-  #include "esp_ota_ops.h"
-}
+// ESP-IDF C headers already provide their own extern "C" guards; direct includes keep this cleaner.
+#include "esp_task_wdt.h"
+#include "esp_ota_ops.h"
 
 #include <WiFi.h>
 
