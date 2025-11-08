@@ -386,18 +386,15 @@ void DisplayUI::showStatus(const Telemetry& t){
       _tft->setTextSize(1);
       _tft->setCursor(4, yLvp);
       bool bypass = _getLvpBypass ? _getLvpBypass() : false;
+      uint16_t lvpColor;
       if (bypass) {
-        _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-        _tft->print("LVP : BYPASS");
+        lvpColor = ST77XX_YELLOW; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("LVP : BYPASS");
       } else if (t.lvpLatched) {
-        _tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
-        _tft->print("LVP : ACTIVE");
+        lvpColor = ST77XX_RED; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("LVP : ACTIVE");
       } else {
-        _tft->setTextColor(ST77XX_GREEN, ST77XX_BLACK);
-        _tft->print("LVP : ok");
+        lvpColor = ST77XX_GREEN; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("LVP : ok");
       }
-      // Append source voltage
-      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      // Append source voltage in same color
       _tft->print("  ");
       if (!isnan(t.srcV)) { _tft->printf("%4.1fV", t.srcV); } else { _tft->print("N/A"); }
 
@@ -405,18 +402,11 @@ void DisplayUI::showStatus(const Telemetry& t){
   _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
   _tft->setCursor(4, yOutv);
       bool outvBy = _getOutvBypass ? _getOutvBypass() : false;
-      if (outvBy) {
-        _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-        _tft->print("OUTV: BYPASS");
-      } else if (t.outvLatched) {
-        _tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
-        _tft->print("OUTV: ACTIVE");
-      } else {
-        _tft->setTextColor(ST77XX_GREEN, ST77XX_BLACK);
-        _tft->print("OUTV: ok");
-      }
-      // Append output voltage
-      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      uint16_t outvColor;
+      if (outvBy) { outvColor = ST77XX_YELLOW; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("OUTV: BYPASS"); }
+      else if (t.outvLatched) { outvColor = ST77XX_RED; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("OUTV: ACTIVE"); }
+      else { outvColor = ST77XX_GREEN; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("OUTV: ok"); }
+      // Append output voltage in same color
       _tft->print("  ");
       if (!isnan(t.outV)) { _tft->printf("%4.1fV", t.outV); } else { _tft->print("N/A"); }
 
@@ -542,17 +532,10 @@ void DisplayUI::showStatus(const Telemetry& t){
       _tft->fillRect(0, yLvp-2, W, hLvp, ST77XX_BLACK);
       _tft->setTextSize(1);
       _tft->setCursor(4, yLvp);
-      if (bypass) {
-        _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-        _tft->print("LVP : BYPASS");
-      } else if (t.lvpLatched) {
-        _tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
-        _tft->print("LVP : ACTIVE");
-      } else {
-        _tft->setTextColor(ST77XX_GREEN, ST77XX_BLACK);
-        _tft->print("LVP : ok");
-      }
-      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      uint16_t lvpColor;
+      if (bypass) { lvpColor = ST77XX_YELLOW; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("LVP : BYPASS"); }
+      else if (t.lvpLatched) { lvpColor = ST77XX_RED; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("LVP : ACTIVE"); }
+      else { lvpColor = ST77XX_GREEN; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("LVP : ok"); }
       _tft->print("  ");
       if (!isnan(t.srcV)) { _tft->printf("%4.1fV", t.srcV); } else { _tft->print("N/A"); }
       prevBypass = bypass;
@@ -567,17 +550,10 @@ void DisplayUI::showStatus(const Telemetry& t){
       _tft->fillRect(0, yOutv-2, W, hOutv, ST77XX_BLACK);
       _tft->setTextSize(1);
       _tft->setCursor(4, yOutv);
-      if (outvBy) {
-        _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-        _tft->print("OUTV: BYPASS");
-      } else if (t.outvLatched) {
-        _tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
-        _tft->print("OUTV: ACTIVE");
-      } else {
-        _tft->setTextColor(ST77XX_GREEN, ST77XX_BLACK);
-        _tft->print("OUTV: ok");
-      }
-      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      uint16_t outvColor;
+      if (outvBy) { outvColor = ST77XX_YELLOW; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("OUTV: BYPASS"); }
+      else if (t.outvLatched) { outvColor = ST77XX_RED; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("OUTV: ACTIVE"); }
+      else { outvColor = ST77XX_GREEN; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("OUTV: ok"); }
       _tft->print("  ");
       if (!isnan(t.outV)) { _tft->printf("%4.1fV", t.outV); } else { _tft->print("N/A"); }
       prevOutvBy = outvBy;
