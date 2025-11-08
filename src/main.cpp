@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <SPI.h>
-#include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
 
 // ESP-IDF C headers already provide their own extern "C" guards; direct includes keep this cleaner.
@@ -18,7 +17,6 @@
 #include "relays.hpp"
 #include <Preferences.h>
 #include "power/Protector.hpp"
-#include "ota/Ota.hpp"
 
 // ---------------- Globals ----------------
 static Adafruit_ST7735* tft = nullptr;   // shared SPI
