@@ -349,12 +349,18 @@ void loop() {
   tele.ocpLatched   = protector.isOcpLatched();
   tele.outvLatched  = protector.isOutvLatched();
   // Buzzer fault pattern tick (priority over one-shot)
-  // Suppress buzzer for LVP/OUTV when those protections are bypassed
+  // Suppress buzzer for LVP/OUTV when those protections are bypassed; include off-current fault
   {
     bool beepFault = false;
     if (tele.ocpLatched) beepFault = true;
     if (tele.lvpLatched && !protector.lvpBypass()) beepFault = true;
     if (tele.outvLatched && !protector.outvBypass()) beepFault = true;
+    // Off-current fault: all relays OFF and load current > 1.0A
+    bool anyOn = false;
+    for (int i = 0; i < (int)R_COUNT; ++i) { if (relayIsOn(i)) { anyOn = true; break; } }
+    bool allOff = !anyOn;
+    bool overCur = (!isnan(tele.loadA)) && (fabsf(tele.loadA) > 1.0f);
+    if (allOff && overCur) beepFault = true;
     Buzzer::tick(beepFault, millis());
   }
 
