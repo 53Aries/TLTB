@@ -119,22 +119,27 @@ void Protector::tick(float srcV, float loadA, float outV, uint32_t nowMs) {
     _overStartMs = 0;
   }
 
-  // -------- Output Voltage Low (debounced around user cutoff) --------
+  // -------- Output Voltage Low (debounced) & hard bounds unless bypassed --------
   if (haveOutV) {
-    // Hard instant trips for out-of-bounds extremes
-    if (outV < OUTV_MIN_V || outV > OUTV_MAX_V) {
-      if (!_outvLatched) {
-        _outvLatched = true;
-        for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
-      }
-    } else if (!_outvBypass && outV < _outvCut) {
-      if (_outvBelowStartMs == 0) _outvBelowStartMs = nowMs;
-      if (!_outvLatched && (nowMs - _outvBelowStartMs) >= _outvTripMs) {
-        _outvLatched = true;
-        for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
-      }
+    if (_outvBypass) {
+      // Ignore all output voltage trips while bypass is active
+      _outvBelowStartMs = 0;
     } else {
-      _outvBelowStartMs = 0; // healthy again; no auto-clear (require manual)
+      // Hard instant trips for out-of-bounds extremes
+      if (outV < OUTV_MIN_V || outV > OUTV_MAX_V) {
+        if (!_outvLatched) {
+          _outvLatched = true;
+          for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+        }
+      } else if (outV < _outvCut) {
+        if (_outvBelowStartMs == 0) _outvBelowStartMs = nowMs;
+        if (!_outvLatched && (nowMs - _outvBelowStartMs) >= _outvTripMs) {
+          _outvLatched = true;
+          for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+        }
+      } else {
+        _outvBelowStartMs = 0; // healthy again; no auto-clear (require manual)
+      }
     }
   }
 
