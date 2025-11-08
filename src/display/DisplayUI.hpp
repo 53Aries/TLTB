@@ -19,6 +19,7 @@ struct DisplayCtor {
   std::function<void()>  onOtaEnd;
   std::function<void(float)> onLvCutChanged;
   std::function<void(float)> onOcpChanged;
+  std::function<void(float)> onOutvChanged;   // Output V cutoff changed
   std::function<bool(int)>   onRfLearn;
 
   // NEW: LVP bypass accessors provided by main/protector
@@ -74,6 +75,7 @@ private:
   void handleMenuSelect(int idx);
   void adjustLvCutoff();
   void adjustOcpLimit();
+  void adjustOutputVCutoff();
   void toggleLvpBypass();          // NEW
   void wifiScanAndConnectUI();
   void wifiForget();
@@ -100,7 +102,9 @@ private:
   const char* _ns; const char* _kLvCut; const char* _kSsid; const char* _kPass;
   std::function<float()> _readSrcV, _readLoadA;
   std::function<void()>  _otaStart, _otaEnd;
+  void   saveOutvCut(float v);
   std::function<void(float)> _lvChanged, _ocpChanged;
+  std::function<void(float)> _outvChanged;
   std::function<bool(int)> _rfLearn;
   std::function<bool()> _getLvpBypass;
   std::function<void(bool)> _setLvpBypass;

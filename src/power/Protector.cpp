@@ -11,6 +11,7 @@ void Protector::begin(Preferences* prefs, float lvpDefault, float ocpDefault) {
   if (_prefs) {
     _lvp = _prefs->getFloat(KEY_LV_CUTOFF, lvpDefault);
     _ocp = _prefs->getFloat(KEY_OCP,      ocpDefault);
+    _outvCut = _prefs->getFloat(KEY_OUTV_CUTOFF, _outvCut);
   } else {
     _lvp = lvpDefault;
     _ocp = ocpDefault;
@@ -18,8 +19,13 @@ void Protector::begin(Preferences* prefs, float lvpDefault, float ocpDefault) {
   // Enforce OCP bounds on startup to protect against out-of-range saved values
   if (_ocp < OCP_MIN_A) _ocp = OCP_MIN_A;
   if (_ocp > OCP_MAX_A) _ocp = OCP_MAX_A;
+  // Enforce OutV bounds (8..16V)
+  if (_outvCut < OUTV_MIN_V) _outvCut = OUTV_MIN_V;
+  if (_outvCut > OUTV_MAX_V) _outvCut = OUTV_MAX_V;
   _lvpLatched = _ocpLatched = false;
   _belowStartMs = _overStartMs = 0;
+  _outvLatched = false;
+  _outvBelowStartMs = 0;
   _cutsent = false;
   _lvpBypass = false;  // not persisted (intentional: safe default on power-up)
 }
@@ -55,14 +61,22 @@ void Protector::tripOcp() {
 }
 
 void Protector::clearLatches() {
-  _lvpLatched = _ocpLatched = false;
+  _lvpLatched = _ocpLatched = _outvLatched = false;
   _belowStartMs = _overStartMs = 0;
+  _outvBelowStartMs = 0;
   _cutsent = false;
 }
 
-void Protector::tick(float srcV, float loadA, uint32_t nowMs) {
+void Protector::setOutvCutoff(float v) {
+  if (v < OUTV_MIN_V) v = OUTV_MIN_V;
+  if (v > OUTV_MAX_V) v = OUTV_MAX_V;
+  _outvCut = v;
+}
+
+void Protector::tick(float srcV, float loadA, float outV, uint32_t nowMs) {
   const bool haveV = !isnan(srcV);
   const bool haveI = !isnan(loadA);
+  const bool haveOutV = !isnan(outV);
 
   // -------- LVP (debounced), ignored if bypass enabled --------
   if (!_lvpBypass && haveV && srcV < _lvp) {
@@ -78,6 +92,25 @@ void Protector::tick(float srcV, float loadA, uint32_t nowMs) {
     if (!_ocpLatched && (nowMs - _overStartMs) >= _ocpTripMs) tripOcp();
   } else {
     _overStartMs = 0;
+  }
+
+  // -------- Output Voltage Low (debounced around user cutoff) --------
+  if (haveOutV) {
+    // Hard instant trips for out-of-bounds extremes
+    if (outV < OUTV_MIN_V || outV > OUTV_MAX_V) {
+      if (!_outvLatched) {
+        _outvLatched = true;
+        for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+      }
+    } else if (outV < _outvCut) {
+      if (_outvBelowStartMs == 0) _outvBelowStartMs = nowMs;
+      if (!_outvLatched && (nowMs - _outvBelowStartMs) >= _outvTripMs) {
+        _outvLatched = true;
+        for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+      }
+    } else {
+      _outvBelowStartMs = 0; // healthy again; no auto-clear (require manual)
+    }
   }
 
   // -------- LVP auto-clear when voltage healthy for a while --------
@@ -99,7 +132,7 @@ void Protector::tick(float srcV, float loadA, uint32_t nowMs) {
   // -------- Continuous enforcement while latched --------
   // Previously this only cut once (gated by _cutsent). That allowed relays to be re-enabled later.
   // Now, while *either* latch is active, we force all relays OFF on every tick.
-  if (_lvpLatched || _ocpLatched) {
+  if (_lvpLatched || _ocpLatched || _outvLatched) {
     for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
     _cutsent = true;       // keep flag for backward compatibility
   } else {

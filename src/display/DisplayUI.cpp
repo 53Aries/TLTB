@@ -26,6 +26,7 @@ static const char* const kMenuItems[] = {
   "Set LVP Cutoff",
   "LVP Bypass",
   "Set OCP Limit",
+  "Set Output V Cutoff",
   "12V System",
   "Learn RF Button",
   "Clear RF Remotes",
@@ -161,6 +162,7 @@ DisplayUI::DisplayUI(const DisplayCtor& c)
   _otaEnd(c.onOtaEnd),
   _lvChanged(c.onLvCutChanged),
   _ocpChanged(c.onOcpChanged),
+  _outvChanged(c.onOutvChanged),
   _rfLearn(c.onRfLearn),
   _getLvpBypass(c.getLvpBypass),
   _setLvpBypass(c.setLvpBypass),
@@ -273,7 +275,8 @@ void DisplayUI::showStatus(const Telemetry& t){
   // Removed InputV: place 12V line directly below Active
   const int y12     = yActive + hActive + 2; const int h12 = 12;
   const int yLvp    = y12 + h12 + 2;  const int hLvp    = 12;
-  const int yOcp    = yLvp + hLvp + 2; const int hOcp    = 12;
+  const int yOutv   = yLvp + hLvp + 2; const int hOutv   = 12;
+  const int yOcp    = yOutv + hOutv + 2; const int hOcp    = 12;
   const int yHint   = 114;  const int hHint   = 12;
 
   static bool s_inited = false;
@@ -380,7 +383,13 @@ void DisplayUI::showStatus(const Telemetry& t){
         _tft->print(t.lvpLatched? "ACTIVE":"ok");
       }
 
-      // Line 6: OCP status (new, separate line)
+  // Line 6: Output Voltage status
+  _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+  _tft->setCursor(4, yOutv);
+  _tft->print("OUTV: ");
+  _tft->print(t.outvLatched ? "ACTIVE" : "ok");
+
+  // Next line: OCP status (separate line)
       _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
       _tft->setCursor(4, yOcp);
       _tft->print("OCP : ");
@@ -506,6 +515,16 @@ void DisplayUI::showStatus(const Telemetry& t){
       }
       prevBypass = bypass;
     }
+  }
+
+  // Output Voltage status changed?
+  if (t.outvLatched != _last.outvLatched) {
+    _tft->fillRect(0, yOutv-2, W, hOutv, ST77XX_BLACK);
+    _tft->setTextSize(1);
+    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    _tft->setCursor(4, yOutv);
+    _tft->print("OUTV: ");
+    _tft->print(t.outvLatched ? "ACTIVE" : "ok");
   }
 
   // OCP status changed?
@@ -693,6 +712,7 @@ void DisplayUI::tick(const Telemetry& t){
 // Persist and toggle mode helpers
 void DisplayUI::saveMode(uint8_t m){ if (_prefs) _prefs->putUChar(KEY_UI_MODE, m); }
 void DisplayUI::toggleMode(){ _mode = (_mode==0)?1:0; saveMode(_mode); }
+void DisplayUI::saveOutvCut(float v){ if (_prefs) _prefs->putFloat(KEY_OUTV_CUTOFF, v); }
 
 void DisplayUI::setDevMenuOnly(bool on){
   _devMenuOnly = on;
@@ -707,7 +727,8 @@ void DisplayUI::handleMenuSelect(int idx){
     case 0: adjustLvCutoff(); break;                        // Set LVP Cutoff
     case 1: toggleLvpBypass(); break;                       // LVP Bypass
     case 2: adjustOcpLimit(); break;                        // Set OCP Limit
-    case 3: {                                               // 12V System
+  case 3: adjustOutputVCutoff(); break;                   // Set Output V Cutoff
+  case 4: {                                               // 12V System
       // 12V System toggle UI (no-flicker incremental updates)
       _tft->fillScreen(ST77XX_BLACK);
       _tft->setTextSize(1);
@@ -743,7 +764,7 @@ void DisplayUI::handleMenuSelect(int idx){
       }
       g_forceHomeFull = true;
     } break;
-    case 4: {                                               // Learn RF Button
+  case 5: {                                               // Learn RF Button
       // RF Learn (simple modal)
       int sel = 0, lastSel = -1;
       _tft->fillScreen(ST77XX_BLACK);
@@ -806,7 +827,7 @@ void DisplayUI::handleMenuSelect(int idx){
         delay(12);
       }
     } break;
-  case 5: {                                               // Clear RF Remotes
+  case 6: {                                               // Clear RF Remotes
       // Clear RF Remotes (confirmation)
       _tft->fillScreen(ST77XX_BLACK);
   _tft->setTextSize(1);
@@ -820,10 +841,10 @@ void DisplayUI::handleMenuSelect(int idx){
         delay(10);
       }
     } break;
-    case 6: wifiScanAndConnectUI(); break;                  // Wi-Fi Connect
-    case 7: wifiForget(); break;                            // Wi-Fi Forget
-    case 8: runOta(); break;                                // OTA Update
-    case 9: showSystemInfo(); break;                        // System Info
+  case 7: wifiScanAndConnectUI(); break;                  // Wi-Fi Connect
+  case 8: wifiForget(); break;                            // Wi-Fi Forget
+  case 9: runOta(); break;                                // OTA Update
+  case 10: showSystemInfo(); break;                       // System Info
   }
 }
 
@@ -853,6 +874,22 @@ void DisplayUI::adjustOcpLimit(){
       _tft->fillRect(6,28,148,12,ST77XX_BLACK); _tft->setCursor(6,28); _tft->printf("%4.1f A", cur);
     }
     if(okPressed()){ if(_ocpChanged) _ocpChanged(cur); _prefs->putFloat(KEY_OCP, cur); break; }
+    if(backPressed()) break;
+    delay(8);
+  }
+}
+
+// --- Output Voltage cutoff adjuster (8..16 V) ---
+void DisplayUI::adjustOutputVCutoff(){
+  _tft->setTextSize(1);
+  float v = _prefs->getFloat(KEY_OUTV_CUTOFF, 11.5f);
+  if (v < 8.0f) v = 8.0f; if (v > 16.0f) v = 16.0f;
+  _tft->fillScreen(ST77XX_BLACK); _tft->setCursor(6,10); _tft->println("Set OutV Cutoff (V)");
+  while(true){
+    int8_t d=readStep(); if(d){ v += d*0.1f; if(v<8.0f)v=8.0f; if(v>16.0f)v=16.0f;
+      _tft->fillRect(6,28,148,12,ST77XX_BLACK); _tft->setCursor(6,28); _tft->printf("%4.1f V", v);
+    }
+    if(okPressed()){ if(_outvChanged) _outvChanged(v); _prefs->putFloat(KEY_OUTV_CUTOFF, v); break; }
     if(backPressed()) break;
     delay(8);
   }

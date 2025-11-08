@@ -282,6 +282,7 @@ void setup() {
     .onOtaEnd    = nullptr,
     .onLvCutChanged = nullptr,
   .onOcpChanged   = [](float a){ protector.setOcpLimit(a); },
+  .onOutvChanged  = [](float v){ protector.setOutvCutoff(v); },
     .onRfLearn      = [](int idx){ return RF::learn(idx); },
     .getLvpBypass   = [](){ return protector.lvpBypass(); },
     .setLvpBypass   = [](bool on){ protector.setLvpBypass(on); },
@@ -337,14 +338,16 @@ void loop() {
   // Read telemetry if present
   tele.srcV  = INA226_SRC::PRESENT ? INA226_SRC::readBusV()    : NAN;
   tele.loadA = INA226::PRESENT     ? INA226::readCurrentA()    : NAN;
+  tele.outV  = INA226::PRESENT     ? INA226::readBusV()        : NAN; // LOAD INA226 bus voltage as buck output
 
   // Protection logic
-  protector.tick(tele.srcV, tele.loadA, millis());
+  protector.tick(tele.srcV, tele.loadA, tele.outV, millis());
   // Track latches separately for UI clarity
-  tele.lvpLatched = protector.isLvpLatched();
-  tele.ocpLatched = protector.isOcpLatched();
+  tele.lvpLatched   = protector.isLvpLatched();
+  tele.ocpLatched   = protector.isOcpLatched();
+  tele.outvLatched  = protector.isOutvLatched();
   // Buzzer fault pattern tick (priority over one-shot)
-  Buzzer::tick(tele.lvpLatched || tele.ocpLatched, millis());
+  Buzzer::tick(tele.lvpLatched || tele.ocpLatched || tele.outvLatched, millis());
 
   // OCP modal
   static bool prevOcp = false;

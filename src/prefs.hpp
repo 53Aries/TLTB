@@ -8,6 +8,7 @@ static constexpr const char* KEY_WIFI_SSID   = "wifi_ssid";
 static constexpr const char* KEY_WIFI_PASS   = "wifi_pass";
 static constexpr const char* KEY_LV_CUTOFF   = "lv_cut";
 static constexpr const char* KEY_OCP         = "ocp_a";
+static constexpr const char* KEY_OUTV_CUTOFF = "outv_cut"; // output (buck) voltage cutoff user setting
 static constexpr const char* RF_PREF_KEYS[6] = {"rf_left","rf_right","rf_brake","rf_tail","rf_marker","rf_aux"};
 // UI mode: 0=HD, 1=RV
 static constexpr const char* KEY_UI_MODE     = "ui_mode";
