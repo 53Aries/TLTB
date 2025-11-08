@@ -382,38 +382,45 @@ void DisplayUI::showStatus(const Telemetry& t){
       bool en = relayIsOn(R_ENABLE);
       _tft->print("12V sys: "); _tft->print(en?"ENABLED":"DISABLED");
 
-      // Line 5: LVP (shifted up)
+      // Line 5: LVP (colored by state: red=ACTIVE, yellow=BYPASS, green=ok)
       _tft->setTextSize(1);
       _tft->setCursor(4, yLvp);
       bool bypass = _getLvpBypass ? _getLvpBypass() : false;
       if (bypass) {
         _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
         _tft->print("LVP : BYPASS");
-        _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      } else if (t.lvpLatched) {
+        _tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
+        _tft->print("LVP : ACTIVE");
       } else {
-        _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-        _tft->setCursor(4, yLvp); _tft->print("LVP : ");
-        _tft->print(t.lvpLatched? "ACTIVE":"ok");
+        _tft->setTextColor(ST77XX_GREEN, ST77XX_BLACK);
+        _tft->print("LVP : ok");
       }
 
       // Line 6: Output Voltage status
   _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
   _tft->setCursor(4, yOutv);
-      _tft->print("OUTV: ");
       bool outvBy = _getOutvBypass ? _getOutvBypass() : false;
       if (outvBy) {
         _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-        _tft->print("BYPASS");
-        _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+        _tft->print("OUTV: BYPASS");
+      } else if (t.outvLatched) {
+        _tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
+        _tft->print("OUTV: ACTIVE");
       } else {
-        _tft->print(t.outvLatched ? "ACTIVE" : "ok");
+        _tft->setTextColor(ST77XX_GREEN, ST77XX_BLACK);
+        _tft->print("OUTV: ok");
       }
 
   // Next line: OCP status (separate line)
-      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
       _tft->setCursor(4, yOcp);
-      _tft->print("OCP : ");
-      _tft->print(t.ocpLatched ? "ACTIVE" : "ok");
+      if (t.ocpLatched) {
+        _tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
+        _tft->print("OCP : ACTIVE");
+      } else {
+        _tft->setTextColor(ST77XX_GREEN, ST77XX_BLACK);
+        _tft->print("OCP : ok");
+      }
 
       // Footer only if no fault ticker
       if (_faultMask == 0) {
@@ -521,38 +528,45 @@ void DisplayUI::showStatus(const Telemetry& t){
 
   // LVP status or bypass changed?
   {
-  static bool prevBypass = false;
+    static bool prevBypass = false;
     bool bypass = _getLvpBypass ? _getLvpBypass() : false;
     if ((t.lvpLatched != _last.lvpLatched) || (bypass != prevBypass)) {
       _tft->fillRect(0, yLvp-2, W, hLvp, ST77XX_BLACK);
-  _tft->setTextSize(1);
+      _tft->setTextSize(1);
+      _tft->setCursor(4, yLvp);
       if (bypass) {
         _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-        _tft->setCursor(4, yLvp); _tft->print("LVP : BYPASS");
-        _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+        _tft->print("LVP : BYPASS");
+      } else if (t.lvpLatched) {
+        _tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
+        _tft->print("LVP : ACTIVE");
       } else {
-        _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-        _tft->setCursor(4, yLvp); _tft->print("LVP : ");
-        _tft->print(t.lvpLatched? "ACTIVE":"ok");
+        _tft->setTextColor(ST77XX_GREEN, ST77XX_BLACK);
+        _tft->print("LVP : ok");
       }
       prevBypass = bypass;
     }
   }
 
-  // Output Voltage status changed?
-  if (t.outvLatched != _last.outvLatched) {
-    _tft->fillRect(0, yOutv-2, W, hOutv, ST77XX_BLACK);
-    _tft->setTextSize(1);
-    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-    _tft->setCursor(4, yOutv);
-    _tft->print("OUTV: ");
+  // Output Voltage status or bypass changed?
+  {
+    static bool prevOutvBy = false;
     bool outvBy = _getOutvBypass ? _getOutvBypass() : false;
-    if (outvBy) {
-      _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-      _tft->print("BYPASS");
-      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-    } else {
-      _tft->print(t.outvLatched ? "ACTIVE" : "ok");
+    if ((t.outvLatched != _last.outvLatched) || (outvBy != prevOutvBy)) {
+      _tft->fillRect(0, yOutv-2, W, hOutv, ST77XX_BLACK);
+      _tft->setTextSize(1);
+      _tft->setCursor(4, yOutv);
+      if (outvBy) {
+        _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+        _tft->print("OUTV: BYPASS");
+      } else if (t.outvLatched) {
+        _tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
+        _tft->print("OUTV: ACTIVE");
+      } else {
+        _tft->setTextColor(ST77XX_GREEN, ST77XX_BLACK);
+        _tft->print("OUTV: ok");
+      }
+      prevOutvBy = outvBy;
     }
   }
 
@@ -560,10 +574,14 @@ void DisplayUI::showStatus(const Telemetry& t){
   if (t.ocpLatched != _last.ocpLatched) {
     _tft->fillRect(0, yOcp-2, W, hOcp, ST77XX_BLACK);
     _tft->setTextSize(1);
-    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     _tft->setCursor(4, yOcp);
-    _tft->print("OCP : ");
-    _tft->print(t.ocpLatched ? "ACTIVE" : "ok");
+    if (t.ocpLatched) {
+      _tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
+      _tft->print("OCP : ACTIVE");
+    } else {
+      _tft->setTextColor(ST77XX_GREEN, ST77XX_BLACK);
+      _tft->print("OCP : ok");
+    }
   }
 
   // Fault ticker redraw if mask changed
