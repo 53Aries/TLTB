@@ -359,10 +359,8 @@ void loop() {
   prevOcp = ocpNow;
 
   if (needOcpAck) {
-    // Modal is now OK-only; returns after OK pressed
-    (void)ui->protectionAlarm("OCP TRIPPED", "Over-current detected.", "Press OK to clear latch");
-    protector.clearLatches();
-    tele.lvpLatched = false;
+    (void)ui->protectionAlarm("OCP TRIPPED", "Over-current detected.", "Press OK to clear");
+    protector.clearOcpLatch();
     tele.ocpLatched = false;
     needOcpAck = false;
     ui->showStatus(tele);
@@ -379,10 +377,24 @@ void loop() {
   prevOutv = outvNow;
 
   if (needOutvAck) {
-    (void)ui->protectionAlarm("OUTPUT VOLTAGE", "Buck output fault.", "Press OK to clear latch");
-    protector.clearLatches();
-    tele.lvpLatched = tele.ocpLatched = tele.outvLatched = false;
+    (void)ui->protectionAlarm("OUTPUT VOLTAGE", "Buck output fault.", "Press OK to clear");
+    protector.clearOutvLatch();
+    tele.outvLatched = false;
     needOutvAck = false;
+    ui->showStatus(tele);
+  }
+
+  // LVP modal (new)
+  static bool prevLvp = false;
+  static bool needLvpAck = false;
+  bool lvpNow = protector.isLvpLatched();
+  if (lvpNow && !prevLvp) needLvpAck = true;
+  prevLvp = lvpNow;
+  if (needLvpAck) {
+    (void)ui->protectionAlarm("LVP TRIPPED", "Input voltage low.", "Press OK to clear");
+    protector.clearLvpLatch();
+    tele.lvpLatched = false;
+    needLvpAck = false;
     ui->showStatus(tele);
   }
 

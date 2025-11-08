@@ -13,6 +13,9 @@ public:
   bool isOcpLatched() const { return _ocpLatched; }
   bool isOutvLatched() const { return _outvLatched; }
   void clearLatches();      // clears both latches
+  void clearLvpLatch();     // clear only LVP latch
+  void clearOcpLatch();     // clear only OCP latch
+  void clearOutvLatch();    // clear only OUTV latch
 
   // LVP bypass control
   void setLvpBypass(bool on);

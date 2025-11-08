@@ -68,6 +68,22 @@ void Protector::clearLatches() {
   _cutsent = false;
 }
 
+void Protector::clearLvpLatch(){
+  _lvpLatched = false;
+  _belowStartMs = 0;
+  _aboveClearStartMs = 0;
+}
+
+void Protector::clearOcpLatch(){
+  _ocpLatched = false;
+  _overStartMs = 0;
+}
+
+void Protector::clearOutvLatch(){
+  _outvLatched = false;
+  _outvBelowStartMs = 0;
+}
+
 void Protector::setOutvBypass(bool on) {
   _outvBypass = on;
   if (on) {
