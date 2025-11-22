@@ -43,7 +43,8 @@ private:
 
   // Limits for configuration
   static constexpr float OCP_MIN_A = 5.0f;
-  static constexpr float OCP_MAX_A = 30.0f;
+  // Updated maximum OCP threshold: anything above 25.5A will trip
+  static constexpr float OCP_MAX_A = 25.5f;
   static constexpr float OUTV_MIN_V = 8.0f;   // hard failsafe min
   static constexpr float OUTV_MAX_V = 16.0f;  // hard failsafe max
 

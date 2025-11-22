@@ -354,12 +354,12 @@ void DisplayUI::showStatus(const Telemetry& t){
         // Draw label in white
         _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
         _tft->print("Load: ");
-        // Choose value color: <=20A green, 20-25A yellow, >25A red
-  float shownA = fabsf(t.loadA);
-  if (shownA > 30.0f) shownA = 30.0f; // cap display at 30A absolute max
-        uint16_t valColor = ST77XX_GREEN;            // < 20A
-        if (shownA >= 25.0f)      valColor = ST77XX_RED;     // 25–30A (and above)
-        else if (shownA >= 20.0f) valColor = ST77XX_YELLOW;  // 20–<25A
+          // Choose value color: <15A green, 15–<20A yellow, >=20A red
+        float shownA = fabsf(t.loadA);
+        if (shownA > 25.5f) shownA = 25.5f; // cap display at OCP max
+          uint16_t valColor = ST77XX_GREEN;            // <15A
+          if (shownA >= 20.0f)      valColor = ST77XX_RED;     // >=20A up to 25.5A
+          else if (shownA >= 15.0f) valColor = ST77XX_YELLOW;  // 15–<20A
         _tft->setTextColor(valColor, ST77XX_BLACK);
         _tft->printf("%4.2f A", shownA);
       }
@@ -481,12 +481,12 @@ void DisplayUI::showStatus(const Telemetry& t){
     } else {
       // Draw label in white then value in color
       _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-      _tft->print("Load: ");
-  float shownA = fabsf(t.loadA);
-  if (shownA > 30.0f) shownA = 30.0f; // cap display at 30A absolute max
-      uint16_t valColor = ST77XX_GREEN;            // < 20A
-      if (shownA >= 25.0f)      valColor = ST77XX_RED;     // 25–30A (and above)
-      else if (shownA >= 20.0f) valColor = ST77XX_YELLOW;  // 20–<25A
+        _tft->print("Load: ");
+      float shownA = fabsf(t.loadA);
+      if (shownA > 25.5f) shownA = 25.5f; // cap display at OCP max
+        uint16_t valColor = ST77XX_GREEN;            // <15A
+        if (shownA >= 20.0f)      valColor = ST77XX_RED;     // >=20A up to 25.5A
+        else if (shownA >= 15.0f) valColor = ST77XX_YELLOW;  // 15–<20A
       _tft->setTextColor(valColor, ST77XX_BLACK);
       _tft->printf("%4.2f A", shownA);
     }
