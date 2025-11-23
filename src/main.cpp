@@ -62,7 +62,7 @@ static int8_t readEncoderStep() {
 
 static bool okPressedEdge(){
   static bool last=false;
-  bool cur = (digitalRead(PIN_ENC_OK) == LOW);
+  bool cur = (digitalRead(PIN_ENC_OK) == ENC_OK_ACTIVE_LEVEL);
   bool edge = (cur && !last);
   last = cur;
   return edge;
@@ -203,7 +203,7 @@ void setup() {
   }
   pinMode(PIN_ENC_A,    INPUT_PULLUP);
   pinMode(PIN_ENC_B,    INPUT_PULLUP);
-  pinMode(PIN_ENC_OK,   INPUT_PULLUP);
+  pinMode(PIN_ENC_OK,   INPUT_PULLUP); // OK: idle HIGH (~3V3), pressed LOW
   pinMode(PIN_ENC_BACK, INPUT_PULLUP);
 
   // Dev boot detection: BACK button held during power-on (simplified)
@@ -343,7 +343,7 @@ void loop() {
     accumEnc += d;
 
     // Read buttons
-    bool ok = (digitalRead(PIN_ENC_OK) == LOW);
+    bool ok = (digitalRead(PIN_ENC_OK) == ENC_OK_ACTIVE_LEVEL);
     bool back = (digitalRead(PIN_ENC_BACK) == LOW);
 
     // Read rotary raw mask (LOW = active). Reuse logic from enforceRotaryMode style.

@@ -15,8 +15,11 @@
 // ======================= Rotary Encoder =======================
 #define PIN_ENC_A       2
 #define PIN_ENC_B       1
-#define PIN_ENC_OK      44
+#define PIN_ENC_OK      36
 #define PIN_ENC_BACK    43
+
+// Encoder OK button active level (hardware drives HIGH when pressed)
+#define ENC_OK_ACTIVE_LEVEL HIGH
 
 // ======================= Rotary 1P8T Mode Selector =======================
 #define PIN_ROT_P1      4  // All Off
