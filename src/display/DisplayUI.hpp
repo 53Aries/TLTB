@@ -66,6 +66,8 @@ public:
   enum UIMode : uint8_t { MODE_HD = 0, MODE_RV = 1 };
   UIMode mode() const { return (UIMode)_mode; }
   void   toggleMode();
+  // Force next Home draw to be a full-screen repaint (after blocking modals)
+  void   requestFullHomeRepaint();
 
 private:
   // draws

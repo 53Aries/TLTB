@@ -20,6 +20,11 @@
 // When returning from menu/settings pages that did fillScreen(), we must
 // force the next Home paint to be a full-screen draw (not incremental).
 static bool g_forceHomeFull = false;
+// Suppress spurious OK at boot and do edge detection
+// Initialize to max to suppress until begin() sets a real deadline
+static uint32_t g_okIgnoreUntilMs = 0xFFFFFFFFu;
+static bool g_okPrev = false;
+static bool g_okInitialReleaseSeen = false;
 
 // ---------------- Menu ----------------
 static const char* const kMenuItems[] = {
@@ -122,27 +127,22 @@ static void getActiveRelayStatus(String& out){
   if (!strcmp(rot, "OFF")) { out = "None"; return; }
   if (!strcmp(rot, "N/A")) { out = "N/A";  return; }
 
-  // If we're in RF mode, reflect whichever single relay is currently ON
+  // If we're in RF mode, check what the RF module says is active
   if (!strcmp(rot, "RF")) {
-    int onIdx = -1; int onCount = 0;
-    for (int i = 0; i < (int)R_COUNT; ++i) {
-      if (g_relay_on[i]) { onIdx = i; onCount++; }
+    int8_t rfActive = RF::getActiveRelay();
+    if (rfActive == -1) {
+      out = "RF"; return;
     }
-    if (onCount == 1) {
-      switch (onIdx) {
-        case R_LEFT:   out = "LEFT";  return;
-        case R_RIGHT:  out = "RIGHT"; return;
-        case R_BRAKE:  out = "BRAKE"; return;
-        case R_TAIL:   out = (getUiMode()==1? "REV" : "TAIL");  return;
-        case R_MARKER: out = "MARK";  return;
-        case R_AUX:    out = (getUiMode()==1? "EleBrake" : "AUX"); return;
-      }
+    // RF has an active relay - display it with mode-aware naming
+    switch (rfActive) {
+      case R_LEFT:   out = "LEFT";  return;
+      case R_RIGHT:  out = "RIGHT"; return;
+      case R_BRAKE:  out = "BRAKE"; return;
+      case R_TAIL:   out = (getUiMode()==1? "REV" : "TAIL");  return;
+      case R_MARKER: out = "MARK";  return;
+      case R_AUX:    out = (getUiMode()==1? "EleBrake" : "AUX"); return;
+      default:       out = "RF"; return;
     }
-    // Special-case RV mode brake mapping: both left & right on implies BRAKE
-    if (getUiMode() == 1 && g_relay_on[R_LEFT] && g_relay_on[R_RIGHT] && !g_relay_on[R_TAIL] && !g_relay_on[R_MARKER] && !g_relay_on[R_AUX]) {
-      out = "BRAKE"; return;
-    }
-    out = "RF"; return;
   }
 
   out = rot;
@@ -179,6 +179,11 @@ void DisplayUI::begin(Preferences& p){
   if (_blPin >= 0) { pinMode(_blPin, OUTPUT); digitalWrite(_blPin, HIGH); }
   _tft->setTextWrap(false);
   _tft->fillScreen(ST77XX_BLACK);
+
+  // Ignore OK presses briefly after boot to prevent accidental menu entry
+  g_okIgnoreUntilMs = millis() + 800; // 0.8s suppress window
+  g_okPrev = false;
+  g_okInitialReleaseSeen = false;
 
   // Ensure 1P8T inputs are not floating: use internal pull-ups (selected = LOW)
   pinMode(PIN_ROT_P1, INPUT_PULLUP);
@@ -589,6 +594,12 @@ void DisplayUI::drawHome(bool force){
   if(_needRedraw) showStatus(_last);
 }
 
+// Public: request a full home repaint on next draw (used after blocking modals)
+void DisplayUI::requestFullHomeRepaint(){
+  g_forceHomeFull = true;
+  _needRedraw = true;
+}
+
 // New: scrolling menu (no header). Shows 8 rows and scrolls as needed.
 void DisplayUI::drawMenu(){
   const int rows = 8;
@@ -657,8 +668,20 @@ void DisplayUI::drawMenuItem(int i, bool sel){
 int8_t DisplayUI::readStep(){ return _encStep? _encStep():0; }
 bool   DisplayUI::okPressed(){
   if (!_encOk) return false;
-  if (!_encOk()) return false;
+  bool cur = _encOk();
   uint32_t now = millis();
+  // Suppress during early boot window
+  if (now < g_okIgnoreUntilMs) { g_okPrev = cur; return false; }
+  // Require seeing an initial release after boot before accepting presses
+  if (!g_okInitialReleaseSeen) {
+    if (!cur) { g_okInitialReleaseSeen = true; }
+    g_okPrev = cur;
+    return false;
+  }
+  // Edge-detect: only fire on transition from not-pressed to pressed
+  bool rising = (cur && !g_okPrev);
+  g_okPrev = cur;
+  if (!rising) return false;
   if (now - _lastOkMs < 160) return false;  // debounce OK
   _lastOkMs = now;
   return true;

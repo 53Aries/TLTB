@@ -16,6 +16,9 @@ void Protector::begin(Preferences* prefs, float lvpDefault, float ocpDefault) {
     _lvp = lvpDefault;
     _ocp = ocpDefault;
   }
+  // Clamp LVP to allowed range
+  if (_lvp < LVP_MIN_V) _lvp = LVP_MIN_V;
+  if (_lvp > LVP_MAX_V) _lvp = LVP_MAX_V;
   // Enforce OCP bounds on startup to protect against out-of-range saved values
   if (_ocp < OCP_MIN_A) _ocp = OCP_MIN_A;
   if (_ocp > OCP_MAX_A) _ocp = OCP_MAX_A;
@@ -29,12 +32,21 @@ void Protector::begin(Preferences* prefs, float lvpDefault, float ocpDefault) {
   _cutsent = false;
   _lvpBypass = false;  // not persisted (intentional: safe default on power-up)
   _outvBypass = false;
+  // Initialize OCP grace idle; will be armed on first over-current event
+  _ocpGraceUntilMs = 0;
+  _ocpTripRelay = -1;
 }
 
 void Protector::setOcpLimit(float amps) {
   if (amps < OCP_MIN_A) amps = OCP_MIN_A;
   if (amps > OCP_MAX_A) amps = OCP_MAX_A;
   _ocp = amps;
+}
+
+void Protector::setLvpCutoff(float v) {
+  if (v < LVP_MIN_V) v = LVP_MIN_V;
+  if (v > LVP_MAX_V) v = LVP_MAX_V;
+  _lvp = v;
 }
 
 void Protector::setLvpBypass(bool on) {
@@ -56,6 +68,11 @@ void Protector::tripLvp() {
 void Protector::tripOcp() {
   if (_ocpLatched) return;
   _ocpLatched = true;
+  // Capture which relay was ON at the moment of trip (before hard cut)
+  _ocpTripRelay = -1;
+  for (int i = 0; i < (int)R_COUNT; ++i) {
+    if (relayIsOn(i)) { _ocpTripRelay = (int8_t)i; break; }
+  }
   // immediate hard cut
   for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
   _cutsent = true;
@@ -75,8 +92,11 @@ void Protector::clearLvpLatch(){
 }
 
 void Protector::clearOcpLatch(){
+  if (!_ocpClearAllowed) return; // ignore clears unless explicitly allowed
   _ocpLatched = false;
   _overStartMs = 0;
+  _ocpTripRelay = -1;
+  _ocpClearAllowed = false; // consume permission
 }
 
 void Protector::clearOutvLatch(){
@@ -111,12 +131,31 @@ void Protector::tick(float srcV, float loadA, float outV, uint32_t nowMs) {
     _belowStartMs = 0; // reset debounce if above threshold / missing / bypassing
   }
 
-  // -------- OCP (debounced) --------
+  // -------- OCP with grace + debounce --------
   if (haveI && loadA > _ocp) {
-    if (_overStartMs == 0) _overStartMs = nowMs;
-    if (!_ocpLatched && (nowMs - _overStartMs) >= _ocpTripMs) tripOcp();
+    // Arm grace when crossing threshold, if not already active
+    if (_ocpGraceUntilMs == 0) {
+      _ocpGraceUntilMs = nowMs + 2000; // 2s grace
+      // Reset debounce while grace is active
+      _overStartMs = 0;
+    }
+    // Only begin debounce after grace window expires
+    if (nowMs >= _ocpGraceUntilMs) {
+      if (_overStartMs == 0) _overStartMs = nowMs;
+      if ((nowMs - _overStartMs) >= _ocpTripMs) {
+        // Trip via helper to capture active relay before hard cut
+        if (!_ocpLatched) {
+          tripOcp();
+        }
+      }
+    }
   } else {
+    // Current back under limit: clear grace and debounce
+    _ocpGraceUntilMs = 0;
     _overStartMs = 0;
+    // Do NOT auto-clear OCP when current is healthy.
+    // OCP will only be cleared explicitly via clearOcpLatch() after OFF is selected.
+    // OCP auto-clear removed: latch remains until explicit clear elsewhere
   }
 
   // -------- Output Voltage Fault (dynamic): active only while under cutoff (<_outvCut) or <8V, and if >16V. --------
@@ -179,4 +218,8 @@ void Protector::tick(float srcV, float loadA, float outV, uint32_t nowMs) {
   } else {
     _cutsent = false;      // reset when no latches are active
   }
+}
+
+void Protector::setOcpHold(bool on) {
+  _ocpHold = on;
 }

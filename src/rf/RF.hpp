@@ -18,4 +18,7 @@ bool learn(int relayIndex);
 // Clear all saved remote signatures (all slots 0..5)
 bool clearAll();
 
+// Get the currently active relay index from RF (-1 if none)
+int8_t getActiveRelay();
+
 } // namespace RF

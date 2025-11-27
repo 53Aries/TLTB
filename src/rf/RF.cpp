@@ -308,4 +308,8 @@ bool clearAll() {
   return true;
 }
 
+int8_t getActiveRelay() {
+  return activeRelay;
+}
+
 } // namespace RF

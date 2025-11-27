@@ -28,6 +28,8 @@ static bool g_otaPendingVerify = false;
 static uint32_t g_otaBootMs = 0;
 static bool g_devBoot = false;   // Developer-boot mode flag
 static bool g_startupGuard = false; // Prevents relay activation until 1p8t is cycled to OFF
+// Suppress off-current alerts during transient periods (e.g., after hard cuts)
+static uint32_t g_offCurSuppressUntilMs = 0;
 
 // LEDC (backlight)
 static const int BL_CHANNEL = 0;
@@ -277,7 +279,8 @@ void setup() {
     .readLoadA   = [](){ return INA226::readCurrentA(); },
     .onOtaStart  = nullptr,
     .onOtaEnd    = nullptr,
-    .onLvCutChanged = nullptr,
+    // Apply new LVP cutoff immediately to protector
+    .onLvCutChanged = [](float v){ protector.setLvpCutoff(v); },
   .onOcpChanged   = [](float a){ protector.setOcpLimit(a); },
   .onOutvChanged  = [](float v){ protector.setOutvCutoff(v); },
   .getOutvBypass  = [](){ return protector.outvBypass(); },
@@ -402,6 +405,12 @@ void loop() {
   tele.outV  = INA226::PRESENT     ? INA226::readBusV()        : NAN; // LOAD INA226 bus voltage as buck output
 
   // Protection logic
+  // Ensure OCP hold engages before tick so auto-clear cannot occur while rotating toward OFF
+  if (protector.isOcpLatched()) {
+    protector.setOcpHold(true);
+  } else {
+    protector.setOcpHold(false);
+  }
   protector.tick(tele.srcV, tele.loadA, tele.outV, millis());
   // Track latches separately for UI clarity
   tele.lvpLatched   = protector.isLvpLatched();
@@ -419,7 +428,8 @@ void loop() {
     for (int i = 0; i < (int)R_COUNT; ++i) { if (relayIsOn(i)) { anyOn = true; break; } }
     bool allOff = !anyOn;
     bool overCur = (!isnan(tele.loadA)) && (fabsf(tele.loadA) > 1.0f);
-    if (allOff && overCur) beepFault = true;
+    // Suppress off-current fault during OCP interlock/guard and transient grace window
+    if (allOff && overCur && !protector.isOcpLatched() && !g_startupGuard && (millis() >= g_offCurSuppressUntilMs)) beepFault = true;
     Buzzer::tick(beepFault, millis());
   }
 
@@ -429,13 +439,75 @@ void loop() {
   {
     bool ocpLatched = protector.isOcpLatched();
     if (ocpLatched) {
+      // Require user to return 1P8T to OFF before allowing 12V enable again
+      g_startupGuard = true;
+      // Always hold OCP while latched so it cannot auto-clear until OFF is selected
+      protector.setOcpHold(true);
       ocpHealthySince = 0; // fault persists; not healthy
       if (!ocpAcked) {
-        (void)ui->protectionAlarm("OCP TRIPPED", "Over-current detected.", "Press OK to clear");
-        // Allow user to attempt resume: clear the OCP latch on acknowledge
+        // Show a blocking modal that cannot be cleared with OK; require OFF cycle.
+        if (tft) {
+          tft->fillScreen(ST77XX_RED);
+          tft->setTextColor(ST77XX_WHITE, ST77XX_RED);
+          tft->setTextSize(2);
+          tft->setCursor(6, 6);  tft->print("OCP TRIPPED");
+          tft->setTextSize(1);
+          tft->setCursor(6, 34); tft->print("Over-current detected.");
+          // Additional hint: relay suspected at trip
+          int8_t r = protector.ocpTripRelay();
+          const char* rname = nullptr;
+          switch (r) {
+            case R_LEFT:   rname = "LEFT";   break;
+            case R_RIGHT:  rname = "RIGHT";  break;
+            case R_BRAKE:  rname = "BRAKE";  break;
+            case R_TAIL:   rname = "TAIL";   break;
+            case R_MARKER: rname = "MARKER"; break;
+            case R_AUX:    rname = "AUX";    break;
+            case R_ENABLE: rname = "12V ENABLE"; break;
+            default:       rname = nullptr;   break;
+          }
+          if (rname) {
+            // Render on two lines to avoid truncation
+            tft->setCursor(6, 46);
+            tft->print("Possible short circuit on");
+            tft->setCursor(6, 58);
+            tft->print(rname);
+          } else {
+            tft->setCursor(6, 46);
+            tft->print("Cycle OUTPUT to OFF.");
+          }
+          // Footer instruction
+          tft->fillRect(0, 108, 160, 20, ST77XX_BLACK);
+          tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+          tft->setCursor(6, 112); tft->print("Rotate to OFF to continue");
+        }
+        // Block until OFF is detected (debounced); keep relays off and extend suppression
+        {
+          uint32_t offStableStart = 0;
+          while (true) {
+            RotaryMode m = readRotary();
+            for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+            g_offCurSuppressUntilMs = millis() + 3000; // keep grace active while user rotates
+            if (m == MODE_ALL_OFF) {
+              if (offStableStart == 0) offStableStart = millis();
+              // Require OFF to be held stable for at least 300ms
+              if (millis() - offStableStart >= 300) break;
+            } else {
+              offStableStart = 0; // reset stability if moved away
+            }
+            delay(10);
+          }
+        }
+        // OFF detected: authorize and clear OCP latch; allow resume
+        protector.setOcpClearAllowed(true);
         protector.clearOcpLatch();
+        protector.setOcpHold(false);
+        g_startupGuard = false; // guard will also clear in enforceRotaryMode when OFF seen
         tele.ocpLatched = false;
+        g_offCurSuppressUntilMs = millis() + 2000; // additional post-clear grace
         ocpAcked = true;  // suppress further pop-ups until fault truly resolves
+        // Ensure the Home screen fully repaints after leaving blocking modal
+        ui->requestFullHomeRepaint();
         ui->showStatus(tele);
       }
     } else {
@@ -445,6 +517,8 @@ void loop() {
       if (now - ocpHealthySince >= 1000) {
         ocpAcked = false; // allow next trigger to show again
       }
+      // OCP is not latched; ensure hold is released
+      protector.setOcpHold(false);
     }
   }
 
@@ -464,6 +538,8 @@ void loop() {
         protector.clearOutvLatch();
         tele.outvLatched = false;
         outvAcked = true;
+        // Ensure home fully repaints after leaving OUTV modal
+        ui->requestFullHomeRepaint();
         ui->showStatus(tele);
       }
     } else {
@@ -486,6 +562,8 @@ void loop() {
         (void)ui->protectionAlarm("LVP TRIPPED", "Input voltage low.", "Press OK to continue");
         // Keep LVP latched so relays remain blocked and status shows ACTIVE
         lvpAcked = true;
+        // Ensure home fully repaints after leaving LVP modal
+        ui->requestFullHomeRepaint();
         ui->showStatus(tele);
       }
     } else {
@@ -506,13 +584,16 @@ void loop() {
     for (int i = 0; i < (int)R_COUNT; ++i) { if (relayIsOn(i)) { anyOn = true; break; } }
     bool allOff = !anyOn;
     bool overCur = (!isnan(tele.loadA)) && (fabsf(tele.loadA) > 1.0f);
-    bool offCurrentFault = allOff && overCur;
+    // Suppress off-current fault during OCP interlock/guard and transient grace
+    bool offCurrentFault = allOff && overCur && !protector.isOcpLatched() && !g_startupGuard && (millis() >= g_offCurSuppressUntilMs);
 
     if (offCurrentFault) {
       offCurHealthySince = 0;
       if (!offCurAcked) {
         (void)ui->protectionAlarm("CURRENT DRAW", "UNEXPECTED CURRENT DRAW", "REMOVE POWER NOW!");
         offCurAcked = true; // suppress repeated popups until healthy
+        // Ensure home fully repaints after leaving off-current alert
+        ui->requestFullHomeRepaint();
         ui->showStatus(tele);
       }
     } else {

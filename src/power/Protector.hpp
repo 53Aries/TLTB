@@ -16,6 +16,12 @@ public:
   void clearLvpLatch();     // clear only LVP latch
   void clearOcpLatch();     // clear only OCP latch
   void clearOutvLatch();    // clear only OUTV latch
+  // Prevent automatic OCP clear while interlock is active
+  void setOcpHold(bool on);
+  // Relay index that was ON when OCP tripped; -1 if unknown
+  int8_t ocpTripRelay() const { return _ocpTripRelay; }
+  // Explicit gate: OCP latch can only be cleared when allowed
+  void setOcpClearAllowed(bool on) { _ocpClearAllowed = on; }
 
   // LVP bypass control
   void setLvpBypass(bool on);
@@ -25,6 +31,7 @@ public:
   float ocp() const { return _ocp; }
 
   // Update limits at runtime (clamped to safety ranges)
+  void setLvpCutoff(float v);        // NEW: update LVP cutoff without reboot
   void setOcpLimit(float amps);
   void setOutvCutoff(float v);
   float outvCutoff() const { return _outvCut; }
@@ -40,6 +47,10 @@ private:
   float _lvp = 15.5f;   // volts
   float _ocp = 20.0f;   // amps
   float _outvCut = 11.5f; // output voltage cutoff (user configurable)
+
+  // LVP bounds (UI allows 12..20V; enforce slightly wider safety if needed)
+  static constexpr float LVP_MIN_V = 12.0f;
+  static constexpr float LVP_MAX_V = 20.0f;
 
   // Limits for configuration
   static constexpr float OCP_MIN_A = 5.0f;
@@ -65,6 +76,9 @@ private:
   bool  _ocpLatched = false;
   bool  _outvLatched = false;
   bool  _outvBypass = false;  // when true, ALL OUTV trips (soft and hard bounds) are ignored
+  bool  _ocpHold    = false;  // when true, do not auto-clear OCP
+  int8_t _ocpTripRelay = -1;  // captured at trip time
+  bool  _ocpClearAllowed = false; // gate explicit clears
 
   // LVP bypass: when true, LVP never trips (and existing LVP latch is cleared)
   bool  _lvpBypass = false;
@@ -72,6 +86,11 @@ private:
   // ensure we cut once per boot even if relays were already off
   bool _cutsent = false;
   uint32_t _outvBelowStartMs = 0;  // debounce start for output voltage low
+  // Grace period to buffer unexpected current draw. When current first exceeds
+  // the OCP threshold, start a grace window; only if it remains high beyond
+  // the window do we begin normal debounce and trip.
+  uint32_t _ocpGraceUntilMs = 0;   // 0 = idle; else timestamp when grace ends
+  // OCP no longer auto-clears; explicit clear via clearOcpLatch()
 };
 
 extern Protector protector;
