@@ -113,10 +113,10 @@ static const char* rotaryLabel() {
     case 1:  return "RF";    // P2
     case 2:  return "LEFT";  // P3
     case 3:  return "RIGHT"; // P4
-    case 4:  return "BRAKE"; // P5
+    case 4:  return (getUiMode()==1 ? "ele brakes" : "BRAKE"); // P5 RV custom label
     case 5:  return (getUiMode()==1? "REV" : "TAIL");  // P6
     case 6:  return "MARK";  // P7
-    case 7:  return (getUiMode()==1? "EleBrake" : "AUX"); // P8
+    case 7:  return (getUiMode()==1? "12v charge" : "AUX"); // P8 RV custom label
     default: return "N/A";
   }
 }
@@ -137,10 +137,10 @@ static void getActiveRelayStatus(String& out){
     switch (rfActive) {
       case R_LEFT:   out = "LEFT";  return;
       case R_RIGHT:  out = "RIGHT"; return;
-      case R_BRAKE:  out = "BRAKE"; return;
+      case R_BRAKE:  out = (getUiMode()==1 ? "ele brakes" : "BRAKE"); return;
       case R_TAIL:   out = (getUiMode()==1? "REV" : "TAIL");  return;
       case R_MARKER: out = "MARK";  return;
-      case R_AUX:    out = (getUiMode()==1? "EleBrake" : "AUX"); return;
+      case R_AUX:    out = (getUiMode()==1? "12v charge" : "AUX"); return;
       default:       out = "RF"; return;
     }
   }
@@ -387,30 +387,26 @@ void DisplayUI::showStatus(const Telemetry& t){
       bool en = relayIsOn(R_ENABLE);
       _tft->print("12V sys: "); _tft->print(en?"ENABLED":"DISABLED");
 
-      // Line 5: LVP (colored by state: red=ACTIVE, yellow=BYPASS, green=ok) + live src voltage
+      // Line 5: Batt Volt (was LVP) (colored by state: red=ACTIVE, yellow=BYPASS, green=ok) + live src voltage
       _tft->setTextSize(1);
       _tft->setCursor(4, yLvp);
       bool bypass = _getLvpBypass ? _getLvpBypass() : false;
       uint16_t lvpColor;
-      if (bypass) {
-        lvpColor = ST77XX_YELLOW; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("LVP : BYPASS");
-      } else if (t.lvpLatched) {
-        lvpColor = ST77XX_RED; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("LVP : ACTIVE");
-      } else {
-        lvpColor = ST77XX_GREEN; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("LVP : ok");
-      }
+      if (bypass) { lvpColor = ST77XX_YELLOW; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("Batt Volt: BYPASS"); }
+      else if (t.lvpLatched) { lvpColor = ST77XX_RED; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("Batt Volt: ACTIVE"); }
+      else { lvpColor = ST77XX_GREEN; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("Batt Volt: ok"); }
       // Append source voltage in same color
       _tft->print("  ");
       if (!isnan(t.srcV)) { _tft->printf("%4.1fV", t.srcV); } else { _tft->print("N/A"); }
 
-      // Line 6: Output Voltage status
+        // Line 6: System Volt (was OUTV) status
   _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
   _tft->setCursor(4, yOutv);
       bool outvBy = _getOutvBypass ? _getOutvBypass() : false;
       uint16_t outvColor;
-      if (outvBy) { outvColor = ST77XX_YELLOW; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("OUTV: BYPASS"); }
-      else if (t.outvLatched) { outvColor = ST77XX_RED; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("OUTV: ACTIVE"); }
-      else { outvColor = ST77XX_GREEN; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("OUTV: ok"); }
+        if (outvBy) { outvColor = ST77XX_YELLOW; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("System Volt: BYPASS"); }
+        else if (t.outvLatched) { outvColor = ST77XX_RED; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("System Volt: ACTIVE"); }
+        else { outvColor = ST77XX_GREEN; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("System Volt: ok"); }
       // Append output voltage in same color
       _tft->print("  ");
       if (!isnan(t.outV)) { _tft->printf("%4.1fV", t.outV); } else { _tft->print("N/A"); }
@@ -538,9 +534,9 @@ void DisplayUI::showStatus(const Telemetry& t){
       _tft->setTextSize(1);
       _tft->setCursor(4, yLvp);
       uint16_t lvpColor;
-      if (bypass) { lvpColor = ST77XX_YELLOW; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("LVP : BYPASS"); }
-      else if (t.lvpLatched) { lvpColor = ST77XX_RED; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("LVP : ACTIVE"); }
-      else { lvpColor = ST77XX_GREEN; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("LVP : ok"); }
+      if (bypass) { lvpColor = ST77XX_YELLOW; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("Batt Volt: BYPASS"); }
+      else if (t.lvpLatched) { lvpColor = ST77XX_RED; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("Batt Volt: ACTIVE"); }
+      else { lvpColor = ST77XX_GREEN; _tft->setTextColor(lvpColor, ST77XX_BLACK); _tft->print("Batt Volt: ok"); }
       _tft->print("  ");
       if (!isnan(t.srcV)) { _tft->printf("%4.1fV", t.srcV); } else { _tft->print("N/A"); }
       prevBypass = bypass;
@@ -556,9 +552,9 @@ void DisplayUI::showStatus(const Telemetry& t){
       _tft->setTextSize(1);
       _tft->setCursor(4, yOutv);
       uint16_t outvColor;
-      if (outvBy) { outvColor = ST77XX_YELLOW; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("OUTV: BYPASS"); }
-      else if (t.outvLatched) { outvColor = ST77XX_RED; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("OUTV: ACTIVE"); }
-      else { outvColor = ST77XX_GREEN; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("OUTV: ok"); }
+      if (outvBy) { outvColor = ST77XX_YELLOW; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("System Volt: BYPASS"); }
+      else if (t.outvLatched) { outvColor = ST77XX_RED; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("System Volt: ACTIVE"); }
+      else { outvColor = ST77XX_GREEN; _tft->setTextColor(outvColor, ST77XX_BLACK); _tft->print("System Volt: ok"); }
       _tft->print("  ");
       if (!isnan(t.outV)) { _tft->printf("%4.1fV", t.outV); } else { _tft->print("N/A"); }
       prevOutvBy = outvBy;
@@ -918,7 +914,7 @@ void DisplayUI::saveLvCut(float v){ if(_prefs) _prefs->putFloat(_kLvCut, v); }
 
 void DisplayUI::adjustLvCutoff(){
   _tft->setTextSize(1);
-  float v=_prefs->getFloat(_kLvCut, 15.5f);
+  float v=_prefs->getFloat(_kLvCut, 17.0f);
   _tft->fillScreen(ST77XX_BLACK); _tft->setCursor(6,10); _tft->println("Set LVP Cutoff (V)");
   while(true){
     int8_t d=readStep(); if(d){ v+=d*0.1f; if(v<12)v=12; if(v>20)v=20;
@@ -932,10 +928,10 @@ void DisplayUI::adjustLvCutoff(){
 
 void DisplayUI::adjustOcpLimit(){
   _tft->setTextSize(1);
-  float cur = _prefs->getFloat(KEY_OCP, 20.0f);
+  float cur = _prefs->getFloat(KEY_OCP, 22.0f);
   _tft->fillScreen(ST77XX_BLACK); _tft->setCursor(6,10); _tft->println("Set OCP (A)");
   while(true){
-    int8_t d=readStep(); if(d){ cur+=d; if(cur<5)cur=5; if(cur>30)cur=30;
+    int8_t d=readStep(); if(d){ cur+=d; if(cur<5)cur=5; if(cur>25)cur=25;
       _tft->fillRect(6,28,148,12,ST77XX_BLACK); _tft->setCursor(6,28); _tft->printf("%4.1f A", cur);
     }
     if(okPressed()){ if(_ocpChanged) _ocpChanged(cur); _prefs->putFloat(KEY_OCP, cur); break; }
@@ -947,7 +943,7 @@ void DisplayUI::adjustOcpLimit(){
 // --- Output Voltage cutoff adjuster (8..16 V) ---
 void DisplayUI::adjustOutputVCutoff(){
   _tft->setTextSize(1);
-  float v = _prefs->getFloat(KEY_OUTV_CUTOFF, 11.5f);
+  float v = _prefs->getFloat(KEY_OUTV_CUTOFF, 10.0f);
   if (v < 8.0f) v = 8.0f; if (v > 16.0f) v = 16.0f;
   _tft->fillScreen(ST77XX_BLACK); _tft->setCursor(6,10); _tft->println("Set OutV Cutoff (V)");
   while(true){

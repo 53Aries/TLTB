@@ -28,8 +28,6 @@ static bool g_otaPendingVerify = false;
 static uint32_t g_otaBootMs = 0;
 static bool g_devBoot = false;   // Developer-boot mode flag
 static bool g_startupGuard = false; // Prevents relay activation until 1p8t is cycled to OFF
-// Suppress off-current alerts during transient periods (e.g., after hard cuts)
-static uint32_t g_offCurSuppressUntilMs = 0;
 
 // LEDC (backlight)
 static const int BL_CHANNEL = 0;
@@ -82,6 +80,8 @@ enum RotaryMode {
   MODE_MARKER,        // P7
   MODE_AUX            // P8
 };
+// Track stable rotary mode to avoid false triggers when switch is between detents
+static RotaryMode g_stableRotaryMode = MODE_ALL_OFF;
 
 static RotaryMode readRotary() {
   // Inputs are PULLUP, so LOW = active position
@@ -111,7 +111,8 @@ static void enforceRotaryMode(RotaryMode m) {
   // Normal operation: In all non-RF modes, we *force* the relay states each loop.
   // This guarantees RF is effectively ignored unless in MODE_RF_ENABLE.
   auto allOff = [](){
-    for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+    // Turn off all output relays, but NOT R_ENABLE (system master relay)
+    for (int i = 0; i < (int)R_ENABLE; ++i) relayOff(i);
   };
 
   switch (m) {
@@ -417,19 +418,12 @@ void loop() {
   tele.ocpLatched   = protector.isOcpLatched();
   tele.outvLatched  = protector.isOutvLatched();
   // Buzzer fault pattern tick (priority over one-shot)
-  // Suppress buzzer for LVP/OUTV when those protections are bypassed; include off-current fault
+  // Suppress buzzer for LVP/OUTV when those protections are bypassed
   {
     bool beepFault = false;
-    if (tele.ocpLatched) beepFault = true;
+    if (tele.ocpLatched) beepFault = true; // OCP always beeps (no bypass)
     if (tele.lvpLatched && !protector.lvpBypass()) beepFault = true;
     if (tele.outvLatched && !protector.outvBypass()) beepFault = true;
-    // Off-current fault: all relays OFF and load current > 1.0A
-    bool anyOn = false;
-    for (int i = 0; i < (int)R_COUNT; ++i) { if (relayIsOn(i)) { anyOn = true; break; } }
-    bool allOff = !anyOn;
-    bool overCur = (!isnan(tele.loadA)) && (fabsf(tele.loadA) > 1.0f);
-    // Suppress off-current fault during OCP interlock/guard and transient grace window
-    if (allOff && overCur && !protector.isOcpLatched() && !g_startupGuard && (millis() >= g_offCurSuppressUntilMs)) beepFault = true;
     Buzzer::tick(beepFault, millis());
   }
 
@@ -487,7 +481,6 @@ void loop() {
           while (true) {
             RotaryMode m = readRotary();
             for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
-            g_offCurSuppressUntilMs = millis() + 3000; // keep grace active while user rotates
             if (m == MODE_ALL_OFF) {
               if (offStableStart == 0) offStableStart = millis();
               // Require OFF to be held stable for at least 300ms
@@ -504,7 +497,6 @@ void loop() {
         protector.setOcpHold(false);
         g_startupGuard = false; // guard will also clear in enforceRotaryMode when OFF seen
         tele.ocpLatched = false;
-        g_offCurSuppressUntilMs = millis() + 2000; // additional post-clear grace
         ocpAcked = true;  // suppress further pop-ups until fault truly resolves
         // Ensure the Home screen fully repaints after leaving blocking modal
         ui->requestFullHomeRepaint();
@@ -575,36 +567,6 @@ void loop() {
     }
   }
 
-  // Off-current protection: if all relays are OFF (12V system disabled) but load current > 1.0A,
-  // show a high-priority single-shot alert instructing to remove power.
-  static bool     offCurAcked = false;
-  static uint32_t offCurHealthySince = 0;
-  {
-    bool anyOn = false;
-    for (int i = 0; i < (int)R_COUNT; ++i) { if (relayIsOn(i)) { anyOn = true; break; } }
-    bool allOff = !anyOn;
-    bool overCur = (!isnan(tele.loadA)) && (fabsf(tele.loadA) > 1.0f);
-    // Suppress off-current fault during OCP interlock/guard and transient grace
-    bool offCurrentFault = allOff && overCur && !protector.isOcpLatched() && !g_startupGuard && (millis() >= g_offCurSuppressUntilMs);
-
-    if (offCurrentFault) {
-      offCurHealthySince = 0;
-      if (!offCurAcked) {
-        (void)ui->protectionAlarm("CURRENT DRAW", "UNEXPECTED CURRENT DRAW", "REMOVE POWER NOW!");
-        offCurAcked = true; // suppress repeated popups until healthy
-        // Ensure home fully repaints after leaving off-current alert
-        ui->requestFullHomeRepaint();
-        ui->showStatus(tele);
-      }
-    } else {
-      uint32_t now = millis();
-      if (offCurHealthySince == 0) offCurHealthySince = now;
-      if (now - offCurHealthySince >= 1000) {
-        offCurAcked = false;
-      }
-    }
-  }
-
   // If we booted a new OTA image in PENDING_VERIFY, mark it valid after a short stable run
   if (g_otaPendingVerify) {
     if (millis() - g_otaBootMs > 8000) { // ~8 seconds of healthy loop
@@ -617,7 +579,18 @@ void loop() {
   RF::service();
 
   // Rotary has final say unless P2 (RF enabled)
-  enforceRotaryMode(readRotary());
+  static RotaryMode s_prevMode = readRotary();
+  RotaryMode curMode = readRotary();
+  if (curMode != s_prevMode) {
+    // On any mode change, suppress OCP for a short window to avoid false trips during relay transitions
+    protector.suppressOcpUntil(millis() + 700); // tune 500–800ms as needed
+    s_prevMode = curMode;
+    // Only update stable mode for actual position changes, not fallback between-detent reads
+    if (curMode != MODE_ALL_OFF || s_prevMode == MODE_ALL_OFF) {
+      g_stableRotaryMode = curMode;
+    }
+  }
+  enforceRotaryMode(curMode);
 
   delay(1); // keep UI responsive
 }

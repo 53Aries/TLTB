@@ -6,7 +6,7 @@
 // LVP can be bypassed via setLvpBypass(true).
 class Protector {
 public:
-  void begin(Preferences* prefs, float lvpDefault = 15.5f, float ocpDefault = 20.0f);
+  void begin(Preferences* prefs, float lvpDefault = 17.0f, float ocpDefault = 22.0f);
   void tick(float srcV, float loadA, float outV, uint32_t nowMs);
 
   bool isLvpLatched() const { return _lvpLatched; }
@@ -22,6 +22,8 @@ public:
   int8_t ocpTripRelay() const { return _ocpTripRelay; }
   // Explicit gate: OCP latch can only be cleared when allowed
   void setOcpClearAllowed(bool on) { _ocpClearAllowed = on; }
+  // Transient suppression: ignore OCP detection until the given time
+  void suppressOcpUntil(uint32_t untilMs) { _ocpSuppressUntilMs = untilMs; }
 
   // LVP bypass control
   void setLvpBypass(bool on);
@@ -44,9 +46,9 @@ private:
   void tripOcp();
 
   Preferences* _prefs = nullptr;
-  float _lvp = 15.5f;   // volts
-  float _ocp = 20.0f;   // amps
-  float _outvCut = 11.5f; // output voltage cutoff (user configurable)
+  float _lvp = 17.0f;   // volts
+  float _ocp = 22.0f;   // amps
+  float _outvCut = 10.0f; // output voltage cutoff (user configurable)
 
   // LVP bounds (UI allows 12..20V; enforce slightly wider safety if needed)
   static constexpr float LVP_MIN_V = 12.0f;
@@ -54,8 +56,8 @@ private:
 
   // Limits for configuration
   static constexpr float OCP_MIN_A = 5.0f;
-  // Updated maximum OCP threshold: anything above 25.5A will trip
-  static constexpr float OCP_MAX_A = 25.5f;
+  // Updated maximum OCP threshold: anything above 25A will trip
+  static constexpr float OCP_MAX_A = 25.0f;
   static constexpr float OUTV_MIN_V = 8.0f;   // hard failsafe min
   static constexpr float OUTV_MAX_V = 16.0f;  // hard failsafe max
 
@@ -79,6 +81,7 @@ private:
   bool  _ocpHold    = false;  // when true, do not auto-clear OCP
   int8_t _ocpTripRelay = -1;  // captured at trip time
   bool  _ocpClearAllowed = false; // gate explicit clears
+  uint32_t _ocpSuppressUntilMs = 0; // transient ignore window for OCP
 
   // LVP bypass: when true, LVP never trips (and existing LVP latch is cleared)
   bool  _lvpBypass = false;

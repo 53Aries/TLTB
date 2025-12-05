@@ -17,7 +17,7 @@ static constexpr float   CURRENT_LSB_A  = 0.001f;   // 1 mA/bit
 static constexpr uint16_t CALIB         = (uint16_t)((0.00512f / (CURRENT_LSB_A * RSHUNT_OHMS)) + 0.5f); // ≈ 2731 (0x0AAB)
 bool  INA226::PRESENT      = false;
 bool  INA226_SRC::PRESENT  = false;
-float INA226::OCP_LIMIT_A  = 20.0f;
+float INA226::OCP_LIMIT_A  = 22.0f;
 static bool s_invertLoad = false;   // persisted via NVS
 
 // --- I2C bring-up (once) ---

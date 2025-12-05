@@ -131,8 +131,9 @@ void Protector::tick(float srcV, float loadA, float outV, uint32_t nowMs) {
     _belowStartMs = 0; // reset debounce if above threshold / missing / bypassing
   }
 
-  // -------- OCP with grace + debounce --------
-  if (haveI && loadA > _ocp) {
+  // -------- OCP with transient suppression + grace + debounce --------
+  bool ocpSuppressed = (_ocpSuppressUntilMs != 0) && (nowMs < _ocpSuppressUntilMs);
+  if (!ocpSuppressed && haveI && loadA > _ocp) {
     // Arm grace when crossing threshold, if not already active
     if (_ocpGraceUntilMs == 0) {
       _ocpGraceUntilMs = nowMs + 2000; // 2s grace
