@@ -327,6 +327,33 @@ void setup() {
     protector.begin(&prefs);
     ui->setFaultMask(computeFaultMask());
     ui->showStatus(tele);
+    
+    // Boot-time off-current safety check: wait 1s for system to stabilize, then verify no unexpected load
+    delay(1000);
+    // Read current after stabilization
+    float bootCurrent = INA226::PRESENT ? INA226::readCurrentA() : 0.0f;
+    if (!isnan(bootCurrent) && bootCurrent > 2.0f) {
+      // Unexpected current draw at boot - critical safety issue
+      tft->fillScreen(ST77XX_BLACK);
+      tft->setTextColor(ST77XX_RED);
+      tft->setTextSize(2);
+      tft->setCursor(10, 40);
+      tft->println("UNEXPECTED");
+      tft->setCursor(10, 60);
+      tft->println("CURRENT DRAW!");
+      tft->setTextSize(1);
+      tft->setTextColor(ST77XX_WHITE);
+      tft->setCursor(10, 90);
+      tft->println("Power off and remove");
+      tft->setCursor(10, 100);
+      tft->println("battery NOW!");
+      tft->setCursor(10, 120);
+      tft->printf("Boot current: %.1fA", bootCurrent);
+      // Block here forever - require power cycle
+      while(true) {
+        delay(1000);
+      }
+    }
   }
 }
 
