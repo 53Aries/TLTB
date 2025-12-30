@@ -1,6 +1,6 @@
 from SCons.Script import Import
 
-env = Import("env")
+Import("env")
 
 if env.get("PIOENV") == "esp32s3-devkitc1-recovery":
     env.Replace(
