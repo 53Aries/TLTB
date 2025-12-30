@@ -4,16 +4,15 @@ The project now reserves a dedicated `factory` slot that always hosts a minimal 
 
 ## Building & Flashing
 
-1. **Build the recovery image once:**
+1. **Build the recovery image:**
    ```sh
    pio run -e esp32s3-devkitc1-recovery
    ```
-2. **Flash it into the factory partition (0x10000) one time:**
+2. **Upload it (PlatformIO now targets 0x10000 automatically):**
    ```sh
-   esptool.py --before default_reset --after hard_reset \
-     write_flash 0x10000 .pio/build/esp32s3-devkitc1-recovery/firmware.bin
+   pio run -t upload -e esp32s3-devkitc1-recovery
    ```
-   After this initial install you normally update only the main OTA slots.
+   The recovery environment uses `scripts/upload_factory.py` to wrap `esptool.py write_flash 0x10000 ...`, so clicking “Upload” in VS Code programs the factory slot directly.
 3. **Build/upload the main firmware as usual:**
    ```sh
    pio run -t upload -e esp32s3-devkitc1
