@@ -15,7 +15,7 @@
 #include "prefs.hpp"
 
 static Adafruit_ST7735* tft = nullptr;
-static Preferences prefs;
+Preferences prefs;
 static WebServer server(80);
 
 static bool g_statusDirty = true;
