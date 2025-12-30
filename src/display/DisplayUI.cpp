@@ -25,6 +25,7 @@ static bool g_forceHomeFull = false;
 static uint32_t g_okIgnoreUntilMs = 0xFFFFFFFFu;
 static bool g_okPrev = false;
 static bool g_okInitialReleaseSeen = false;
+static constexpr uint32_t kOkLongPressMs = 700;
 
 // ---------------- Menu ----------------
 static const char* const kMenuItems[] = {
@@ -184,6 +185,9 @@ void DisplayUI::begin(Preferences& p){
   g_okIgnoreUntilMs = millis() + 800; // 0.8s suppress window
   g_okPrev = false;
   g_okInitialReleaseSeen = false;
+  _okHolding = false;
+  _okHoldLong = false;
+  _okDownMs = 0;
 
   // Ensure 1P8T inputs are not floating: use internal pull-ups (selected = LOW)
   pinMode(PIN_ROT_P1, INPUT_PULLUP);
@@ -338,12 +342,9 @@ void DisplayUI::showStatus(const Telemetry& t){
       // Normal status display
       // Line 1: MODE (top)
       {
-        bool selected = (_homeFocus == 1);
-        uint16_t bg = selected ? ST77XX_BLUE : ST77XX_BLACK;
-        uint16_t fg = ST77XX_WHITE;
-        _tft->fillRect(0, yMode-2, W, hMode, bg);
+        _tft->fillRect(0, yMode-2, W, hMode, ST77XX_BLACK);
         _tft->setTextSize(2);
-        _tft->setTextColor(fg, bg);
+        _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
         _tft->setCursor(4, yMode);
         _tft->print("MODE: ");
         _tft->print(_mode ? "RV" : "HD");
@@ -460,15 +461,14 @@ void DisplayUI::showStatus(const Telemetry& t){
 
   // Load A changed?
   // MODE line diff (mode or focus changed)
-  static uint8_t s_prevMode = 255; static int s_prevFocus = -1;
-  if (s_prevMode != _mode || s_prevFocus != _homeFocus) {
-    uint16_t bg = (_homeFocus==1)? ST77XX_BLUE : ST77XX_BLACK;
-    _tft->fillRect(0, yMode-2, W, hMode, bg);
+  static uint8_t s_prevMode = 255;
+  if (s_prevMode != _mode) {
+    _tft->fillRect(0, yMode-2, W, hMode, ST77XX_BLACK);
     _tft->setTextSize(2);
-    _tft->setTextColor(ST77XX_WHITE, bg);
+    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     _tft->setCursor(4, yMode);
     _tft->print("MODE: "); _tft->print(_mode?"RV":"HD");
-    s_prevMode = _mode; s_prevFocus = _homeFocus;
+    s_prevMode = _mode;
   }
 
   if ((isnan(t.loadA) != isnan(_last.loadA)) ||
@@ -684,6 +684,45 @@ bool   DisplayUI::okPressed(){
 }
 bool   DisplayUI::backPressed(){ return _encBack? _encBack():false; }
 
+DisplayUI::OkPressEvent DisplayUI::pollHomeOkPress(){
+  uint32_t now = millis();
+  bool cur = (digitalRead(PIN_ENC_OK) == ENC_OK_ACTIVE_LEVEL);
+
+  // Honor boot ignore window and initial release requirement
+  if (now < g_okIgnoreUntilMs) {
+    if (!cur) { _okHolding = false; _okHoldLong = false; }
+    return OkPressEvent::None;
+  }
+  if (!g_okInitialReleaseSeen) {
+    if (!cur) { g_okInitialReleaseSeen = true; }
+    return OkPressEvent::None;
+  }
+
+  if (cur) {
+    if (!_okHolding) {
+      _okHolding = true;
+      _okDownMs = now;
+      _okHoldLong = false;
+    } else if (!_okHoldLong && (now - _okDownMs) >= kOkLongPressMs) {
+      _okHoldLong = true;
+    }
+    return OkPressEvent::None;
+  }
+
+  if (!_okHolding) return OkPressEvent::None;
+
+  OkPressEvent evt = _okHoldLong ? OkPressEvent::Long : OkPressEvent::Short;
+  _okHolding = false;
+  _okHoldLong = false;
+
+  if (evt == OkPressEvent::Short && (now - _lastOkMs) < 160) {
+    return OkPressEvent::None;
+  }
+
+  _lastOkMs = now;
+  return evt;
+}
+
 void DisplayUI::tick(const Telemetry& t){
   static bool wasInMenu = false;   // ========== NEW: track menu->home transition ==========
 
@@ -699,8 +738,9 @@ void DisplayUI::tick(const Telemetry& t){
   }
 
   int8_t d  = readStep();
-  bool ok   = okPressed();
   bool back = backPressed();
+  bool ok   = _inMenu ? okPressed() : false;
+  OkPressEvent okEvent = _inMenu ? OkPressEvent::None : pollHomeOkPress();
 
   if (_inMenu) {
     int total = _devMenuOnly ? DEV_MENU_COUNT : MENU_COUNT;
@@ -713,18 +753,15 @@ void DisplayUI::tick(const Telemetry& t){
     }
     if (back){ if (!_devMenuOnly) { _inMenu = false; _needRedraw = true; } }
   } else {
-    if (ok)  {
-      if (_homeFocus == 1) { toggleMode(); _needRedraw = true; }
-      else { _menuIdx = 0; _inMenu = true; _needRedraw = true; }
-    }
-    if (back){ _needRedraw = true; }
-    if (d) {
-      // Toggle focus between none(0) and MODE(1)
-      _homeFocus = (_homeFocus + (d>0?1:-1));
-      if (_homeFocus < 0) _homeFocus = 1;
-      if (_homeFocus > 1) _homeFocus = 0;
+    if (okEvent == OkPressEvent::Long) {
+      _menuIdx = 0;
+      _inMenu = true;
+      _needRedraw = true;
+    } else if (okEvent == OkPressEvent::Short) {
+      toggleMode();
       _needRedraw = true;
     }
+    if (back){ _needRedraw = true; }
   }
 
   // ========== NEW: if we just exited menu/settings, force full home redraw ==========
@@ -777,6 +814,19 @@ void DisplayUI::saveOutvCut(float v){ if (_prefs) _prefs->putFloat(KEY_OUTV_CUTO
 void DisplayUI::setDevMenuOnly(bool on){
   _devMenuOnly = on;
   if (on) { _inMenu = true; _menuIdx = 0; _needRedraw = true; }
+}
+
+void DisplayUI::enterMenu(int startIdx){
+  int total = _devMenuOnly ? DEV_MENU_COUNT : MENU_COUNT;
+  if (total <= 0) {
+    _menuIdx = 0;
+  } else {
+    if (startIdx < 0) startIdx = 0;
+    if (startIdx >= total) startIdx = total - 1;
+    _menuIdx = startIdx;
+  }
+  _inMenu = true;
+  _needRedraw = true;
 }
 
 // ================================================================

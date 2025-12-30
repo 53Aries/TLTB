@@ -19,7 +19,7 @@
 #define PIN_ENC_BACK    43
 
 // Encoder OK button active level (hardware drives HIGH when pressed)
-#define ENC_OK_ACTIVE_LEVEL HIGH
+#define ENC_OK_ACTIVE_LEVEL LOW
 
 // ======================= Rotary 1P8T Mode Selector =======================
 #define PIN_ROT_P1      4  // All Off
@@ -34,6 +34,7 @@
 // ======================= I²C Bus (INA226 modules) =======================
 #define PIN_I2C_SDA     47
 #define PIN_I2C_SCL     48
+// #Source INA bridge A0
 
 // ======================= Relays (active-low) =======================
 #define PIN_RELAY_LH       8   // Left Turn

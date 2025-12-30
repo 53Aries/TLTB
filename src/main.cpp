@@ -214,6 +214,10 @@ void setup() {
   delay(5);
   if (digitalRead(PIN_ENC_BACK) == LOW) {
     g_devBoot = true;
+    // Wait for BACK release so the UI menu is not immediately closed by a held button
+    while (digitalRead(PIN_ENC_BACK) == LOW) {
+      delay(1);
+    }
   }
 
   attachInterrupt(digitalPinToInterrupt(PIN_ENC_A), enc_isrA, RISING);
@@ -298,7 +302,8 @@ void setup() {
   ui->begin(prefs);               // shows splash, applies brightness
 
   if (g_devBoot) {
-    ui->setDevMenuOnly(true); // keep menu restricted; diagnostics screen added in loop
+    ui->setFaultMask(0);
+    ui->enterMenu();
   }
 
   // sensors + RF (skip in dev-boot)
@@ -359,69 +364,13 @@ void setup() {
 
 void loop() {
   if (g_devBoot) {
-    // Dev diagnostics: show real-time states of encoder & rotary switches.
-    // Minimal flicker approach: redraw only on change or every 250ms.
-    static uint32_t lastDraw = 0;
-    static uint8_t  lastRotMask = 0xFF;
-    static int32_t  accumEnc = 0;
-    static int32_t  lastShownEnc = 0;
-    static bool     lastOk = false, lastBack = false;
-
-    // Accumulate encoder delta
-    noInterrupts();
-    int32_t d = enc_delta; enc_delta = 0; // consume ISR delta
-    interrupts();
-    accumEnc += d;
-
-    // Read buttons
-    bool ok = (digitalRead(PIN_ENC_OK) == ENC_OK_ACTIVE_LEVEL);
-    bool back = (digitalRead(PIN_ENC_BACK) == LOW);
-
-    // Read rotary raw mask (LOW = active). Reuse logic from enforceRotaryMode style.
-    uint8_t rotMask = 0;
-    if (digitalRead(PIN_ROT_P1) == LOW) rotMask |= (1<<0);
-    if (digitalRead(PIN_ROT_P2) == LOW) rotMask |= (1<<1);
-    if (digitalRead(PIN_ROT_P3) == LOW) rotMask |= (1<<2);
-    if (digitalRead(PIN_ROT_P4) == LOW) rotMask |= (1<<3);
-    if (digitalRead(PIN_ROT_P5) == LOW) rotMask |= (1<<4);
-    if (digitalRead(PIN_ROT_P6) == LOW) rotMask |= (1<<5);
-    if (digitalRead(PIN_ROT_P7) == LOW) rotMask |= (1<<6);
-    if (digitalRead(PIN_ROT_P8) == LOW) rotMask |= (1<<7);
-
-    uint32_t now = millis();
-    bool timeRefresh = (now - lastDraw) >= 250;
-    bool changed = (rotMask != lastRotMask) || (ok != lastOk) || (back != lastBack) || (lastShownEnc != accumEnc);
-
-    if (changed || timeRefresh) {
-      if (tft) {
-        tft->fillScreen(ST77XX_BLACK);
-        tft->setTextSize(1);
-        tft->setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-        tft->setCursor(4, 4); tft->print("DEV DIAGNOSTICS");
-        tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-        tft->setCursor(4, 18); tft->print("ENC Accum: "); tft->print(accumEnc);
-        tft->setCursor(4, 30); tft->print("OK: "); tft->print(ok?"DOWN":"UP");
-        tft->setCursor(70, 30); tft->print("BACK: "); tft->print(back?"DOWN":"UP");
-        tft->setCursor(4, 42); tft->print("Rot Mask: 0x"); tft->print(rotMask, HEX);
-        // Detail each position
-        const char* labels[8] = {"P1","P2","P3","P4","P5","P6","P7","P8"};
-        int y = 54;
-        for (int i=0;i<8;++i){
-          tft->setCursor(4 + (i%4)*38, y + (i/4)*12);
-          bool active = rotMask & (1<<i);
-          if (active) tft->setTextColor(ST77XX_GREEN, ST77XX_BLACK); else tft->setTextColor(0x4208, ST77XX_BLACK); // dark grey fallback
-          tft->print(labels[i]); tft->print(":"); tft->print(active?"LOW":"HIGH");
-        }
-        tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-        tft->setCursor(4, 96); tft->print("Hold BACK on boot for dev mode");
-        tft->setCursor(4, 108); tft->print("Reset to exit.");
-      }
-      lastDraw = now;
-      lastRotMask = rotMask;
-      lastOk = ok; lastBack = back;
-      lastShownEnc = accumEnc;
-    }
-    // Allow buzzer & basic UI tasks if needed
+    tele.srcV = NAN;
+    tele.loadA = NAN;
+    tele.outV = NAN;
+    tele.lvpLatched = false;
+    tele.ocpLatched = false;
+    tele.outvLatched = false;
+    ui->setFaultMask(0);
     ui->tick(tele);
     delay(10);
     return;

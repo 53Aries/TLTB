@@ -61,6 +61,7 @@ public:
 
   // Dev boot: restrict menu to Wi‑Fi and OTA only and keep UI in menu
   void setDevMenuOnly(bool on);
+  void enterMenu(int startIdx = 0);
 
   // Optional: expose mode getters/setters if other modules need it later
   enum UIMode : uint8_t { MODE_HD = 0, MODE_RV = 1 };
@@ -88,6 +89,8 @@ private:
   void showSystemInfo();
 
   // small helpers
+  enum class OkPressEvent { None, Short, Long };
+  OkPressEvent pollHomeOkPress();
   int8_t readStep(); bool okPressed(); bool backPressed();
   void   saveLvCut(float v);
   void   saveMode(uint8_t m);
@@ -139,7 +142,9 @@ private:
 
   // Home interactions
   uint8_t _mode = 0;          // 0=HD, 1=RV (persisted)
-  int     _homeFocus = 0;     // 0 = none, 1 = MODE line highlighted
+  bool     _okHolding = false;
+  bool     _okHoldLong = false;
+  uint32_t _okDownMs = 0;
 
   // Dev-boot menu restriction
   bool _devMenuOnly = false;
