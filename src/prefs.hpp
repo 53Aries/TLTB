@@ -12,6 +12,7 @@ static constexpr const char* KEY_OUTV_CUTOFF = "outv_cut"; // output (buck) volt
 static constexpr const char* RF_PREF_KEYS[6] = {"rf_left","rf_right","rf_brake","rf_tail","rf_marker","rf_aux"};
 // UI mode: 0=HD, 1=RV
 static constexpr const char* KEY_UI_MODE     = "ui_mode";
+static constexpr const char* KEY_LAST_GOOD_OTA = "last_ota";
 
 static constexpr const char* KEY_OTA_URL     = "ota_url";
 // Invert load current reading (bool)

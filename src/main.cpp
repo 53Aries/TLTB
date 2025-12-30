@@ -5,6 +5,8 @@
 // ESP-IDF C headers already provide their own extern "C" guards; direct includes keep this cleaner.
 #include "esp_task_wdt.h"
 #include "esp_ota_ops.h"
+#include "esp_partition.h"
+#include "esp_err.h"
 
 #include <WiFi.h>
 
@@ -26,14 +28,19 @@ static Telemetry tele{};
 // OTA rollback verification
 static bool g_otaPendingVerify = false;
 static uint32_t g_otaBootMs = 0;
-static bool g_devBoot = false;   // Developer-boot mode flag
 static bool g_startupGuard = false; // Prevents relay activation until 1p8t is cycled to OFF
+static bool g_recoveryHotkey = false; // true when user requested dedicated recovery slot at boot
 
 // LEDC (backlight)
 static const int BL_CHANNEL = 0;
 
 // Backlight
 static void setBacklight(uint8_t v){ ledcWrite(BL_CHANNEL, v); }
+
+// Forward declarations
+static void rememberActiveOtaSlot();
+static void rebootIntoRecovery(const char* reason);
+static bool detectRecoveryCombo();
 
 // -------------------------------------------------------------------
 // ----------- Encoder (ISR-based, fast + debounced) -----------------
@@ -164,6 +171,61 @@ static void enforceRotaryMode(RotaryMode m) {
   }
 }
 
+// Persist last known good OTA slot so recovery firmware can jump back
+static void rememberActiveOtaSlot() {
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  if (!running) return;
+  if (running->subtype >= ESP_PARTITION_SUBTYPE_APP_OTA_MIN &&
+      running->subtype <= ESP_PARTITION_SUBTYPE_APP_OTA_MAX) {
+    uint8_t slot = running->subtype - ESP_PARTITION_SUBTYPE_APP_OTA_MIN;
+    prefs.putUChar(KEY_LAST_GOOD_OTA, slot);
+  }
+}
+
+static void rebootIntoRecovery(const char* reason) {
+  const esp_partition_t* factory = esp_partition_find_first(
+      ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, nullptr);
+  if (!factory) {
+    Serial.println("Recovery partition missing");
+    return;
+  }
+  esp_err_t err = esp_ota_set_boot_partition(factory);
+  if (err != ESP_OK) {
+    Serial.printf("Failed to select recovery partition: %s\n", esp_err_to_name(err));
+    return;
+  }
+  if (tft) {
+    tft->fillScreen(ST77XX_BLACK);
+    tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    tft->setTextSize(2);
+    tft->setCursor(8, 40);
+    tft->print("Recovery");
+    tft->setCursor(8, 60);
+    tft->print("Boot...");
+    tft->setTextSize(1);
+    if (reason) {
+      tft->setCursor(8, 90);
+      tft->print(reason);
+    }
+  }
+  delay(250);
+  esp_restart();
+}
+
+static bool detectRecoveryCombo() {
+  if (digitalRead(PIN_ENC_BACK) != LOW) return false;
+  if (digitalRead(PIN_ENC_OK) != LOW) return false;
+  const uint32_t holdMs = 2000;
+  uint32_t start = millis();
+  while (digitalRead(PIN_ENC_BACK) == LOW && digitalRead(PIN_ENC_OK) == LOW) {
+    if (millis() - start >= holdMs) {
+      return true;
+    }
+    delay(10);
+  }
+  return false;
+}
+
 // (Relay scan feature removed)
 
 // ----------- Faults -----------
@@ -209,16 +271,9 @@ void setup() {
   pinMode(PIN_ENC_OK,   INPUT_PULLUP); // OK: idle HIGH (~3V3), pressed LOW
   pinMode(PIN_ENC_BACK, INPUT_PULLUP);
 
-  // Dev boot detection: BACK button held during power-on (simplified)
-  // Use a short settling delay then sample BACK; no rotary position required.
+  // Recovery request detection: BACK + OK held during power-on
   delay(5);
-  if (digitalRead(PIN_ENC_BACK) == LOW) {
-    g_devBoot = true;
-    // Wait for BACK release so the UI menu is not immediately closed by a held button
-    while (digitalRead(PIN_ENC_BACK) == LOW) {
-      delay(1);
-    }
-  }
+  g_recoveryHotkey = detectRecoveryCombo();
 
   attachInterrupt(digitalPinToInterrupt(PIN_ENC_A), enc_isrA, RISING);
 
@@ -270,8 +325,7 @@ void setup() {
 
   // prefs first
   prefs.begin(NVS_NS, false);
-
-  // Dev-boot now uses existing UI Wi‑Fi/OTA pages; no special flow here.
+  rememberActiveOtaSlot();
 
   // UI wire-up
   ui = new DisplayUI(DisplayCtor{
@@ -294,6 +348,7 @@ void setup() {
     .getLvpBypass   = [](){ return protector.lvpBypass(); },
     .setLvpBypass   = [](bool on){ protector.setLvpBypass(on); },
     .getStartupGuard = [](){ return g_startupGuard; },
+    .onRecoveryRequest = [](){ rebootIntoRecovery("UI request"); },
   });
   ui->attachTFT(tft, PIN_TFT_BL);
   ui->attachBrightnessSetter(setBacklight);
@@ -301,20 +356,15 @@ void setup() {
 
   ui->begin(prefs);               // shows splash, applies brightness
 
-  if (g_devBoot) {
-    ui->setFaultMask(0);
-    ui->enterMenu();
+  if (g_recoveryHotkey) {
+    rebootIntoRecovery("Back+OK held");
   }
 
-  // sensors + RF (skip in dev-boot)
-  if (!g_devBoot) {
-    INA226::begin();
-    INA226_SRC::begin();
-    RF::begin();
-    Buzzer::begin();
-  } else {
-    Buzzer::begin(); // keep buzzer available for feedback if needed
-  }
+  // sensors + RF
+  INA226::begin();
+  INA226_SRC::begin();
+  RF::begin();
+  Buzzer::begin();
 
   // Auto-join Wi-Fi (non-blocking)
   {
@@ -328,54 +378,39 @@ void setup() {
   }
 
   // Protector init (loads thresholds)
-  if (!g_devBoot) {
-    protector.begin(&prefs);
-    ui->setFaultMask(computeFaultMask());
-    ui->showStatus(tele);
-    
-    // Boot-time off-current safety check: wait 1s for system to stabilize, then verify no unexpected load
-    delay(1000);
-    // Read current after stabilization
-    float bootCurrent = INA226::PRESENT ? INA226::readCurrentA() : 0.0f;
-    if (!isnan(bootCurrent) && bootCurrent > 2.0f) {
-      // Unexpected current draw at boot - critical safety issue
-      tft->fillScreen(ST77XX_BLACK);
-      tft->setTextColor(ST77XX_RED);
-      tft->setTextSize(2);
-      tft->setCursor(10, 40);
-      tft->println("UNEXPECTED");
-      tft->setCursor(10, 60);
-      tft->println("CURRENT DRAW!");
-      tft->setTextSize(1);
-      tft->setTextColor(ST77XX_WHITE);
-      tft->setCursor(10, 90);
-      tft->println("Power off and remove");
-      tft->setCursor(10, 100);
-      tft->println("battery NOW!");
-      tft->setCursor(10, 120);
-      tft->printf("Boot current: %.1fA", bootCurrent);
-      // Block here forever - require power cycle
-      while(true) {
-        delay(1000);
-      }
+  protector.begin(&prefs);
+  ui->setFaultMask(computeFaultMask());
+  ui->showStatus(tele);
+  
+  // Boot-time off-current safety check: wait 1s for system to stabilize, then verify no unexpected load
+  delay(1000);
+  // Read current after stabilization
+  float bootCurrent = INA226::PRESENT ? INA226::readCurrentA() : 0.0f;
+  if (!isnan(bootCurrent) && bootCurrent > 2.0f) {
+    // Unexpected current draw at boot - critical safety issue
+    tft->fillScreen(ST77XX_BLACK);
+    tft->setTextColor(ST77XX_RED);
+    tft->setTextSize(2);
+    tft->setCursor(10, 40);
+    tft->println("UNEXPECTED");
+    tft->setCursor(10, 60);
+    tft->println("CURRENT DRAW!");
+    tft->setTextSize(1);
+    tft->setTextColor(ST77XX_WHITE);
+    tft->setCursor(10, 90);
+    tft->println("Power off and remove");
+    tft->setCursor(10, 100);
+    tft->println("battery NOW!");
+    tft->setCursor(10, 120);
+    tft->printf("Boot current: %.1fA", bootCurrent);
+    // Block here forever - require power cycle
+    while(true) {
+      delay(1000);
     }
   }
 }
 
 void loop() {
-  if (g_devBoot) {
-    tele.srcV = NAN;
-    tele.loadA = NAN;
-    tele.outV = NAN;
-    tele.lvpLatched = false;
-    tele.ocpLatched = false;
-    tele.outvLatched = false;
-    ui->setFaultMask(0);
-    ui->tick(tele);
-    delay(10);
-    return;
-  }
-
   // Read telemetry if present
   tele.srcV  = INA226_SRC::PRESENT ? INA226_SRC::readBusV()    : NAN;
   tele.loadA = INA226::PRESENT     ? INA226::readCurrentA()    : NAN;

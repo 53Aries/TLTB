@@ -30,6 +30,7 @@ struct DisplayCtor {
   
   // Startup guard accessor
   std::function<bool()>      getStartupGuard;
+  std::function<void()>      onRecoveryRequest;
 };
 
 enum FaultBits : uint32_t {
@@ -119,6 +120,7 @@ private:
   std::function<bool()> _getLvpBypass;
   std::function<void(bool)> _setLvpBypass;
   std::function<bool()> _getStartupGuard;
+  std::function<void()> _requestRecovery;
 
   Preferences* _prefs=nullptr;
 

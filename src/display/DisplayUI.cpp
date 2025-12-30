@@ -40,7 +40,8 @@ static const char* const kMenuItems[] = {
   "Wi-Fi Connect",
   "Wi-Fi Forget",
   "OTA Update",
-  "System Info"
+  "System Info",
+  "Recovery Mode"
 };
 static constexpr int MENU_COUNT = sizeof(kMenuItems) / sizeof(kMenuItems[0]);
 // Dev boot menu shows only Wi‑Fi and OTA entries
@@ -170,7 +171,8 @@ DisplayUI::DisplayUI(const DisplayCtor& c)
   _setOutvBypass(c.setOutvBypass),
   _getLvpBypass(c.getLvpBypass),
   _setLvpBypass(c.setLvpBypass),
-  _getStartupGuard(c.getStartupGuard) {}
+  _getStartupGuard(c.getStartupGuard),
+  _requestRecovery(c.onRecoveryRequest) {}
 
 void DisplayUI::attachTFT(Adafruit_ST7735* tft, int blPin){ _tft=tft; _blPin=blPin; }
 void DisplayUI::attachBrightnessSetter(std::function<void(uint8_t)> fn){ _setBrightness=fn; }
@@ -956,6 +958,20 @@ void DisplayUI::handleMenuSelect(int idx){
   case 9: wifiForget(); break;                            // Wi-Fi Forget
   case 10: runOta(); break;                               // OTA Update
   case 11: showSystemInfo(); break;                       // System Info
+  case 12: {
+      _tft->fillScreen(ST77XX_BLACK);
+      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      _tft->setTextSize(1);
+      _tft->setCursor(6, 20); _tft->println("Switching to");
+      _tft->setCursor(6, 34); _tft->println("Recovery Mode...");
+      if (_requestRecovery) {
+        _requestRecovery(); // does not return (device restarts)
+      } else {
+        _tft->setCursor(6, 56);
+        _tft->println("No handler configured");
+        delay(1200);
+      }
+    } break;
   }
 }
 
