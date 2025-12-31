@@ -100,7 +100,14 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   http.end();
 
   if (!Update.end(true)) {
-    char buf[48]; snprintf(buf, sizeof(buf), "End err %u", Update.getError());
+    uint8_t err = Update.getError();
+    const char* errStr = Update.errorString();
+    char buf[96];
+    if (errStr && errStr[0]) {
+      snprintf(buf, sizeof(buf), "End err %u: %s", err, errStr);
+    } else {
+      snprintf(buf, sizeof(buf), "End err %u", err);
+    }
     status(cb, buf);
     return false;
   }

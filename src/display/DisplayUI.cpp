@@ -740,7 +740,14 @@ void DisplayUI::tick(const Telemetry& t){
   }
 
   int8_t d  = readStep();
-  bool back = backPressed();
+  bool rawBack = backPressed();
+  if (_ignoreMenuBack) {
+    if (!rawBack) {
+      _ignoreMenuBack = false; // release detected, resume normal handling
+    }
+    rawBack = false;           // suppress lingering BACK edge
+  }
+  bool back = rawBack;
   bool ok   = _inMenu ? okPressed() : false;
   OkPressEvent okEvent = _inMenu ? OkPressEvent::None : pollHomeOkPress();
 
@@ -749,15 +756,23 @@ void DisplayUI::tick(const Telemetry& t){
     if (d)   { _menuIdx = (( _menuIdx + d ) % total + total) % total; _needRedraw = true; }
     if (ok)  {
       int srcIdx = _devMenuOnly ? kDevMenuMap[_menuIdx] : _menuIdx;
-      handleMenuSelect(srcIdx);
-      if (!_devMenuOnly) _inMenu = false; // stay in menu in dev mode
+      bool stayInMenu = handleMenuSelect(srcIdx);
+      if (!_devMenuOnly) {
+        if (stayInMenu) {
+          _ignoreMenuBack = true; // wait for release before we allow BACK to exit
+        } else {
+          _inMenu = false;
+          _ignoreMenuBack = false;
+        }
+      }
       _needRedraw = true;
     }
-    if (back){ if (!_devMenuOnly) { _inMenu = false; _needRedraw = true; } }
+    if (back){ if (!_devMenuOnly) { _inMenu = false; _ignoreMenuBack = false; _needRedraw = true; } }
   } else {
     if (okEvent == OkPressEvent::Long) {
       _menuIdx = 0;
       _inMenu = true;
+      _ignoreMenuBack = false;
       _needRedraw = true;
     } else if (okEvent == OkPressEvent::Short) {
       toggleMode();
@@ -770,6 +785,7 @@ void DisplayUI::tick(const Telemetry& t){
   if (wasInMenu && !_inMenu) {
     g_forceHomeFull = true;   // next Home draw must be full
     _needRedraw = true;       // ensure we actually draw it this frame
+    _ignoreMenuBack = false;
   }
   wasInMenu = _inMenu;
 
@@ -815,7 +831,7 @@ void DisplayUI::saveOutvCut(float v){ if (_prefs) _prefs->putFloat(KEY_OUTV_CUTO
 
 void DisplayUI::setDevMenuOnly(bool on){
   _devMenuOnly = on;
-  if (on) { _inMenu = true; _menuIdx = 0; _needRedraw = true; }
+  if (on) { _inMenu = true; _menuIdx = 0; _ignoreMenuBack = false; _needRedraw = true; }
 }
 
 void DisplayUI::enterMenu(int startIdx){
@@ -828,13 +844,15 @@ void DisplayUI::enterMenu(int startIdx){
     _menuIdx = startIdx;
   }
   _inMenu = true;
+  _ignoreMenuBack = false;
   _needRedraw = true;
 }
 
 // ================================================================
 // actions & sub UIs
 // ================================================================
-void DisplayUI::handleMenuSelect(int idx){
+bool DisplayUI::handleMenuSelect(int idx){
+  bool stayInMenu = true;
   switch(idx){
     case 0: adjustLvCutoff(); break;                        // Set LVP Cutoff
     case 1: toggleLvpBypass(); break;                       // LVP Bypass
@@ -959,6 +977,7 @@ void DisplayUI::handleMenuSelect(int idx){
   case 10: runOta(); break;                               // OTA Update
   case 11: showSystemInfo(); break;                       // System Info
   }
+  return stayInMenu;
 }
 
 // --- adjusters ---
@@ -1309,16 +1328,50 @@ void DisplayUI::runOta(){
   _tft->setTextSize(1);
   _tft->setCursor(6,10); _tft->println("OTA Update");
 
+  constexpr int STATUS_X = 6;
+  constexpr int STATUS_Y = 28;
+  constexpr int STATUS_WIDTH = 148;
+  constexpr int STATUS_LINE_H = 12;
+  constexpr int STATUS_MAX_LINES = 3;
+  constexpr int PROGRESS_Y = STATUS_Y + STATUS_MAX_LINES * STATUS_LINE_H + 6;
+
+  auto drawStatus = [&](const char* msg){
+    String text = msg ? String(msg) : String("");
+    _tft->fillRect(0, STATUS_Y - 2, 160, STATUS_MAX_LINES * STATUS_LINE_H + 6, ST77XX_BLACK);
+    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    const int charsPerLine = STATUS_WIDTH / 6; // ~6 px per char at text size 1
+    for (int line = 0; line < STATUS_MAX_LINES; ++line) {
+      if (!text.length()) break;
+      int take = min(charsPerLine, (int)text.length());
+      bool needsMore = text.length() > take;
+      if (needsMore) {
+        int spaceBreak = text.lastIndexOf(' ', take - 1);
+        if (spaceBreak > 0) {
+          take = spaceBreak + 1;
+        }
+      }
+      String chunk = text.substring(0, take);
+      chunk.trim();
+      text.remove(0, take);
+      text.trim();
+      if (line == STATUS_MAX_LINES - 1 && (needsMore || text.length())) {
+        if ((int)chunk.length() > charsPerLine - 3) chunk.remove(charsPerLine - 3);
+        chunk += "...";
+        text = "";
+      }
+      _tft->setCursor(STATUS_X, STATUS_Y + line * STATUS_LINE_H);
+      _tft->print(chunk);
+    }
+  };
+
   Ota::Callbacks cb;
   cb.onStatus = [&](const char* s){
-    // Show status/messages at y=28 or y=92 for final
-    _tft->setCursor(6,28); _tft->fillRect(6,28,148,12,ST77XX_BLACK);
-    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-    _tft->print(s);
+    // Wrap status text across the small TFT so error details stay visible.
+    drawStatus(s);
   };
   cb.onProgress = [&](size_t w, size_t t){
-    _tft->fillRect(6,60,148,10,ST77XX_BLACK);
-    _tft->setCursor(6,60);
+    _tft->fillRect(STATUS_X, PROGRESS_Y, STATUS_WIDTH, 10, ST77XX_BLACK);
+    _tft->setCursor(STATUS_X, PROGRESS_Y);
     if (t) _tft->printf("%u/%u", (unsigned)w, (unsigned)t);
     else   _tft->printf("%u", (unsigned)w);
   };

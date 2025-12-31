@@ -79,7 +79,7 @@ private:
   void drawMenuItem(int idx, bool selected);
 
   // actions & sub UIs
-  void handleMenuSelect(int idx);
+  bool handleMenuSelect(int idx);
   void adjustLvCutoff();
   void adjustOcpLimit();
   void adjustOutputVCutoff();
@@ -140,6 +140,7 @@ private:
   uint32_t _faultLastMs = 0;
 
   bool _inMenu = false;
+  bool _ignoreMenuBack = false;   // suppress lingering BACK after exiting a submenu
   uint32_t _lastOkMs = 0;
 
   // Home interactions
