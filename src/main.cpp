@@ -402,6 +402,9 @@ void loop() {
     if (tele.ocpLatched) beepFault = true; // OCP always beeps (no bypass)
     if (tele.lvpLatched && !protector.lvpBypass()) beepFault = true;
     if (tele.outvLatched && !protector.outvBypass()) beepFault = true;
+    if (ui && ui->menuActive()) {
+      beepFault = false; // silence buzzer whenever settings menu is on screen
+    }
     Buzzer::tick(beepFault, millis());
   }
 

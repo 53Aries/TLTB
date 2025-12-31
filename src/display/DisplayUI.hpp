@@ -64,6 +64,7 @@ public:
   // Dev boot: restrict menu to Wi‑Fi and OTA only and keep UI in menu
   void setDevMenuOnly(bool on);
   void enterMenu(int startIdx = 0);
+  bool menuActive() const { return _inMenu; }
 
   // Optional: expose mode getters/setters if other modules need it later
   enum UIMode : uint8_t { MODE_HD = 0, MODE_RV = 1 };

@@ -7,12 +7,41 @@
 #include <Update.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
+#include <esp_ota_ops.h>
+#include <esp_partition.h>
 #include "prefs.hpp"
 
 namespace Ota {
 
 static void status(const Callbacks& cb, const char* s){ if (cb.onStatus) cb.onStatus(s); }
 static void progress(const Callbacks& cb, size_t w, size_t t){ if (cb.onProgress) cb.onProgress(w,t); }
+
+static void ensureRunningMarkedValid(const Callbacks& cb){
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  if (!running) return;
+  esp_ota_img_states_t st;
+  if (esp_ota_get_state_partition(running, &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY) {
+    status(cb, "Clearing OTA pending state...");
+    esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+    if (err != ESP_OK) {
+      char buf[64]; snprintf(buf, sizeof(buf), "Pending clear err %d", (int)err);
+      status(cb, buf);
+    }
+  }
+}
+
+static void describePartitions(const Callbacks& cb){
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  const esp_partition_t* next    = esp_ota_get_next_update_partition(nullptr);
+  if (!running || !next) return;
+  char buf[96];
+  snprintf(buf, sizeof(buf), "Run %s @0x%06x Next %s @0x%06x", running->label, running->address, next->label, next->address);
+  status(cb, buf);
+  if (next->size) {
+    char sz[64]; snprintf(sz, sizeof(sz), "Next slot %u KB", (unsigned)(next->size / 1024));
+    status(cb, sz);
+  }
+}
 
 static bool beginDownload(const char* url, HTTPClient& http, const Callbacks& cb){
   http.setTimeout(10000);
@@ -35,6 +64,9 @@ static bool beginDownload(const char* url, HTTPClient& http, const Callbacks& cb
 
 bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   if (WiFi.status() != WL_CONNECTED) { status(cb, "Wi-Fi not connected"); return false; }
+
+  ensureRunningMarkedValid(cb);
+  describePartitions(cb);
 
   // 1) Query latest release API
   const char* r = repo && repo[0] ? repo : OTA_REPO;
