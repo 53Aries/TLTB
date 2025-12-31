@@ -1,3 +1,5 @@
+// File Overview: Defines relay indices plus helper routines for safely driving the
+// active-low outputs (including the master enable relay) on the tester.
 #pragma once
 #include <Arduino.h>
 #include "pins.hpp"

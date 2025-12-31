@@ -1,3 +1,5 @@
+// File Overview: Application entry point for the Trailer Lighting Test Box; initializes
+// hardware, drives the UI, samples telemetry, and coordinates protection plus relay logic.
 #include <Arduino.h>
 #include <SPI.h>
 #include <Adafruit_ST7735.h>

@@ -1,3 +1,5 @@
+// File Overview: Implements the protection state machine handling LVP, OCP, and output
+// voltage faults, including debounce logic, latching, bypassing, and relay cutoffs.
 #include "Protector.hpp"
 #include <math.h>
 #include "prefs.hpp"

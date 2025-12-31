@@ -1,3 +1,5 @@
+// File Overview: Configures and reads the pair of INA226 sensors used for load current
+// measurement and source voltage monitoring, including calibration helpers.
 #include "INA226.hpp"
 #include "pins.hpp"
 #include "../prefs.hpp"

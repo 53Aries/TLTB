@@ -1,3 +1,5 @@
+// File Overview: Declares the buzzer control API for short confirmation beeps and
+// latched fault tone patterns on the active buzzer output.
 #pragma once
 #include <Arduino.h>
 #include "pins.hpp"

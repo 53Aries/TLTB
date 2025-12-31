@@ -1,3 +1,5 @@
+// File Overview: Declares the DisplayUI class, its constructor wiring, fault flags, and
+// helper APIs used by the main application to drive the TFT experience.
 #pragma once
 #include <Arduino.h>
 #include <functional>

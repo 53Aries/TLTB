@@ -1,3 +1,5 @@
+// File Overview: Implements a polling quadrature decoder for the rotary encoder with
+// configurable detent, debounce, and direction handling.
 #include "Rotary.hpp"
 
 static inline uint8_t rd(int pin){ return (uint8_t)digitalRead(pin); }

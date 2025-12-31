@@ -1,3 +1,5 @@
+// File Overview: Declares the INA226 helper namespaces for interacting with the load
+// and source sensors (current, bus voltage, presence, and polarity controls).
 #pragma once
 #include <Arduino.h>
 

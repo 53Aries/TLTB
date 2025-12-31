@@ -1,3 +1,5 @@
+// File Overview: Declares the lightweight RotaryEncoder helper that the UI polls for
+// high-resolution knob input without relying on interrupts.
 #pragma once
 #include <Arduino.h>
 

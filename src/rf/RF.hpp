@@ -1,3 +1,5 @@
+// File Overview: Declares the RF module API for initializing the receiver, servicing
+// frames, learning remotes, clearing slots, and querying active relays.
 #pragma once
 #include <stdint.h>
 

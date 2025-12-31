@@ -1,3 +1,5 @@
+// File Overview: Simple struct bundling the live voltage/current measurements and latch
+// states that flow between the sensor, protection, and UI layers.
 #pragma once
 struct Telemetry {
   float srcV = 0.0f;

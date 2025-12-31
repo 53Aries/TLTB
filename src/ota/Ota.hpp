@@ -1,3 +1,5 @@
+// File Overview: Declares the OTA helper interface plus optional status/progress
+// callbacks so the UI can report GitHub update activity.
 #pragma once
 #include <Arduino.h>
 #include <functional>

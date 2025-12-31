@@ -1,3 +1,5 @@
+// File Overview: Handles RF remote learning/storage plus runtime decoding with rc-switch
+// and drives the relay outputs (with buzzer feedback) according to received commands.
 #include "RF.hpp"
 #include <Arduino.h>
 #include "pins.hpp"

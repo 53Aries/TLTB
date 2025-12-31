@@ -1,3 +1,5 @@
+// File Overview: Declares the Protector class interface, exposing configuration knobs,
+// latch state queries, and bypass controls for the safety system.
 #pragma once
 #include <Arduino.h>
 #include <Preferences.h>

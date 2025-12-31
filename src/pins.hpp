@@ -1,3 +1,5 @@
+// File Overview: Centralized ESP32-S3 pin map covering the TFT, encoder, rotary switch,
+// INA226 sensors, relays, buzzer, and RF receiver connections.
 #pragma once
 
 // ======================= SPI (FSPI) for TFT =======================

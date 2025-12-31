@@ -1,3 +1,5 @@
+// File Overview: Implements the GitHub-based OTA update flow by fetching the latest
+// release JSON, downloading the firmware asset, and flashing it with Update.
 #include "Ota.hpp"
 
 #include <WiFi.h>

@@ -1,3 +1,5 @@
+// File Overview: Implements the TFT user interface, including the status screen,
+// menu workflows, Wi-Fi and OTA utilities, telemetry rendering, and fault banners.
 #include <Arduino.h>
 #include "DisplayUI.hpp"
 

@@ -1,3 +1,5 @@
+// File Overview: Declares the shared Preferences instance, namespace, and key strings
+// used to persist Wi-Fi, protection, RF, and OTA settings.
 #pragma once
 #include <Preferences.h>
 

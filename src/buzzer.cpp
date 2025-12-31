@@ -1,3 +1,5 @@
+// File Overview: Implements the non-blocking buzzer state machine for confirmation beeps
+// and repeating fault alarms tied to protection latches.
 #include "buzzer.hpp"
 
 namespace {
