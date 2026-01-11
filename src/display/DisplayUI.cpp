@@ -116,10 +116,10 @@ static const char* rotaryLabel() {
     case 1:  return "RF";    // P2
     case 2:  return "LEFT";  // P3
     case 3:  return "RIGHT"; // P4
-    case 4:  return (getUiMode()==1 ? "ele brakes" : "BRAKE"); // P5 RV custom label
-    case 5:  return (getUiMode()==1? "REV" : "TAIL");  // P6
-    case 6:  return "MARK";  // P7
-    case 7:  return (getUiMode()==1? "12v charge" : "AUX"); // P8 RV custom label
+    case 4:  return "BRAKE"; // P5 - BRAKE in both modes
+    case 5:  return "TAIL";  // P6
+    case 6:  return (getUiMode()==1? "REV" : "MARK");  // P7 - REV in RV mode
+    case 7:  return (getUiMode()==1? "Ele Brakes" : "AUX"); // P8 - Ele Brakes in RV mode
     default: return "N/A";
   }
 }
@@ -140,10 +140,10 @@ static void getActiveRelayStatus(String& out){
     switch (rfActive) {
       case R_LEFT:   out = "LEFT";  return;
       case R_RIGHT:  out = "RIGHT"; return;
-      case R_BRAKE:  out = (getUiMode()==1 ? "ele brakes" : "BRAKE"); return;
-      case R_TAIL:   out = (getUiMode()==1? "REV" : "TAIL");  return;
-      case R_MARKER: out = "MARK";  return;
-      case R_AUX:    out = (getUiMode()==1? "12v charge" : "AUX"); return;
+      case R_BRAKE:  out = "BRAKE"; return;
+      case R_TAIL:   out = "TAIL";  return;
+      case R_MARKER: out = (getUiMode()==1? "REV" : "MARK");  return;
+      case R_AUX:    out = (getUiMode()==1? "Ele Brakes" : "AUX"); return;
       default:       out = "RF"; return;
     }
   }
@@ -288,16 +288,16 @@ void DisplayUI::showStatus(const Telemetry& t){
   const int hLoad   = 16;  // size=2 text = 16 px
   const int hActive = 16;  // size=2 or 1; reserve for size=2
   const int h12     = 12;
-  const int hLvp    = 12;
-  const int hOutv   = 12;
-  const int hOcp    = 12;
-  const int yMode   = 4;
-  const int yLoad   = yMode + hMode + GAP;
-  const int yActive = yLoad + hLoad + GAP;
-  const int y12     = yActive + hActive + GAP;
-  const int yLvp    = y12 + h12 + GAP;
-  const int yOutv   = yLvp + hLvp + GAP;
-  const int yOcp    = yOutv + hOutv + GAP;
+  const int hLvp       = 12;
+  const int hOutv      = 12;
+  const int hCooldown  = 12;
+  const int yMode      = 4;
+  const int yLoad      = yMode + hMode + GAP;
+  const int yActive    = yLoad + hLoad + GAP;
+  const int y12        = yActive + hActive + GAP;
+  const int yLvp       = y12 + h12 + GAP;
+  const int yOutv      = yLvp + hLvp + GAP;
+  const int yCooldown  = yOutv + hOutv + GAP;
   // Footer position when fault ticker hidden; we suppress footer entirely if faults present to avoid overlap
   const int yHintNoTicker = 114;  const int hHint   = 12;
 
@@ -414,14 +414,17 @@ void DisplayUI::showStatus(const Telemetry& t){
       _tft->print("  ");
       if (!isnan(t.outV)) { _tft->printf("%4.1fV", t.outV); } else { _tft->print("N/A"); }
 
-  // Next line: OCP status (separate line)
-      _tft->setCursor(4, yOcp);
-      if (t.ocpLatched) {
+      // Cooldown timer line
+      _tft->setCursor(4, yCooldown);
+      if (t.cooldownActive) {
         _tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
-        _tft->print("OCP : ACTIVE");
+        _tft->printf("Cooldown: %3ds", t.cooldownSecsRemaining);
+      } else if (t.cooldownSecsRemaining > 0) {
+        _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+        _tft->printf("Hi-Amps Time: %3ds", t.cooldownSecsRemaining);
       } else {
         _tft->setTextColor(ST77XX_GREEN, ST77XX_BLACK);
-        _tft->print("OCP : ok");
+        _tft->print("Cooldown: ok");
       }
 
       // Footer only if no fault ticker
@@ -563,17 +566,21 @@ void DisplayUI::showStatus(const Telemetry& t){
     }
   }
 
-  // OCP status changed?
-  if (t.ocpLatched != _last.ocpLatched) {
-    _tft->fillRect(0, yOcp-2, W, hOcp, ST77XX_BLACK);
+  // Cooldown timer changed?
+  if (t.cooldownActive != _last.cooldownActive || 
+      t.cooldownSecsRemaining != _last.cooldownSecsRemaining) {
+    _tft->fillRect(0, yCooldown-2, W, hCooldown, ST77XX_BLACK);
     _tft->setTextSize(1);
-    _tft->setCursor(4, yOcp);
-    if (t.ocpLatched) {
+    _tft->setCursor(4, yCooldown);
+    if (t.cooldownActive) {
       _tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
-      _tft->print("OCP : ACTIVE");
+      _tft->printf("Cooldown: %3ds", t.cooldownSecsRemaining);
+    } else if (t.cooldownSecsRemaining > 0) {
+      _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+      _tft->printf("Hi-Amps Time: %3ds", t.cooldownSecsRemaining);
     } else {
       _tft->setTextColor(ST77XX_GREEN, ST77XX_BLACK);
-      _tft->print("OCP : ok");
+      _tft->print("Cooldown: ok");
     }
   }
 
@@ -907,11 +914,11 @@ bool DisplayUI::handleMenuSelect(int idx){
         _tft->fillRect(0,20,160,16,ST77XX_BLACK);
         _tft->setCursor(6,24);
         if (s==3) {
-          _tft->print(getUiMode()==1?"REV":"TAIL");
+          _tft->print("TAIL");
         } else if (s==4) {
-          _tft->print("MARKER");
+          _tft->print(getUiMode()==1?"REV":"MARKER");
         } else if (s==5) {
-          _tft->print(getUiMode()==1?"EleBrake":"AUX");
+          _tft->print(getUiMode()==1?"Ele Brakes":"AUX");
         } else {
           _tft->print(s==0?"LEFT":s==1?"RIGHT":s==2?"BRAKE":"?");
         }

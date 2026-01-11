@@ -8,4 +8,6 @@ struct Telemetry {
   bool  lvpLatched = false;
   bool  ocpLatched = false;
   bool  outvLatched = false; // Output Voltage Low/Fault latched
+  uint16_t cooldownSecsRemaining = 0; // Cooldown timer: 0=inactive, >0=active countdown
+  bool cooldownActive = false;        // True when in cooldown (unit disabled)
 };

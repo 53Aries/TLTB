@@ -31,6 +31,13 @@ static uint32_t g_otaBootMs = 0;
 static bool g_devBoot = false;   // Developer-boot mode flag
 static bool g_startupGuard = false; // Prevents relay activation until 1p8t is cycled to OFF
 
+// Cooldown timer state (20A usage limit)
+static uint32_t g_highCurrentStartMs = 0; // When >20A current started (0=not active)
+static uint32_t g_cooldownStartMs = 0;    // When cooldown period started (0=not in cooldown)
+static constexpr uint32_t HIGH_CURRENT_LIMIT_MS = 120000; // 120 seconds
+static constexpr uint32_t COOLDOWN_PERIOD_MS = 120000;     // 120 seconds
+static constexpr float HIGH_CURRENT_THRESHOLD = 20.0f;     // 20 amps
+
 // LEDC (backlight)
 static const int BL_CHANNEL = 0;
 
@@ -152,7 +159,12 @@ static void enforceRotaryMode(RotaryMode m) {
       break;
 
     case MODE_AUX:
-      allOff(); relayOn(R_AUX);
+      allOff();
+      if (getUiMode() == 1) { // RV
+        relayOn(R_BRAKE);
+      } else {
+        relayOn(R_AUX);
+      }
       break;
   }
 
@@ -395,6 +407,51 @@ void loop() {
   tele.lvpLatched   = protector.isLvpLatched();
   tele.ocpLatched   = protector.isOcpLatched();
   tele.outvLatched  = protector.isOutvLatched();
+
+  // Cooldown timer logic: limit sustained high current usage
+  uint32_t now = millis();
+  float current = !isnan(tele.loadA) ? fabsf(tele.loadA) : 0.0f;
+  
+  if (g_cooldownStartMs > 0) {
+    // Currently in cooldown period - keep enable relay OFF
+    relayOff(R_ENABLE);
+    uint32_t elapsed = now - g_cooldownStartMs;
+    if (elapsed >= COOLDOWN_PERIOD_MS) {
+      // Cooldown complete - resume normal operation
+      g_cooldownStartMs = 0;
+      g_highCurrentStartMs = 0;
+      tele.cooldownSecsRemaining = 0;
+      tele.cooldownActive = false;
+    } else {
+      // Still cooling down - update countdown
+      tele.cooldownSecsRemaining = (COOLDOWN_PERIOD_MS - elapsed) / 1000 + 1;
+      tele.cooldownActive = true;
+    }
+  } else if (current > HIGH_CURRENT_THRESHOLD) {
+    // Current is high - track duration
+    if (g_highCurrentStartMs == 0) {
+      g_highCurrentStartMs = now; // Start timing high current
+    } else {
+      uint32_t highDuration = now - g_highCurrentStartMs;
+      if (highDuration >= HIGH_CURRENT_LIMIT_MS) {
+        // Exceeded time limit - enter cooldown
+        g_cooldownStartMs = now;
+        g_highCurrentStartMs = 0;
+        tele.cooldownSecsRemaining = COOLDOWN_PERIOD_MS / 1000;
+        tele.cooldownActive = true;
+        relayOff(R_ENABLE); // Immediately disable
+      } else {
+        // Still within limit - show countdown to limit
+        tele.cooldownSecsRemaining = (HIGH_CURRENT_LIMIT_MS - highDuration) / 1000 + 1;
+        tele.cooldownActive = false;
+      }
+    }
+  } else {
+    // Current dropped below threshold - reset high current timer
+    g_highCurrentStartMs = 0;
+    tele.cooldownSecsRemaining = 0;
+    tele.cooldownActive = false;
+  }
   // Buzzer fault pattern tick (priority over one-shot)
   // Suppress buzzer for LVP/OUTV when those protections are bypassed
   {

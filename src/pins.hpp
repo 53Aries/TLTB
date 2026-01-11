@@ -39,12 +39,13 @@
 // #Source INA bridge A0
 
 // ======================= Relays (active-low) =======================
-#define PIN_RELAY_LH       8   // Left Turn
-#define PIN_RELAY_RH       9    // Right Turn
+#define PIN_RELAY_LH       9   // Left Turn
+#define PIN_RELAY_RH       11   // Right Turn
 #define PIN_RELAY_BRAKE   10    // Brake Lights
-#define PIN_RELAY_TAIL    11    // Tail Lights
-#define PIN_RELAY_MARKER  12    // Marker Lights
-#define PIN_RELAY_AUX     13    // Auxiliary
+#define PIN_RELAY_TAIL    12    // Tail Lights
+#define PIN_RELAY_MARKER  13    // Marker Lights
+#define PIN_RELAY_AUX     8
+    // Auxiliary
 #define PIN_RELAY_ENABLE  14    // Enable 12V buck
 
 // Array for DisplayUI.cpp relay status logic
