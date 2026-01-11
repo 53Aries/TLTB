@@ -133,32 +133,22 @@ void Protector::tick(float srcV, float loadA, float outV, uint32_t nowMs) {
     _belowStartMs = 0; // reset debounce if above threshold / missing / bypassing
   }
 
-  // -------- OCP with transient suppression + grace + debounce --------
+  // -------- OCP with transient suppression + debounce (no grace period) --------
   bool ocpSuppressed = (_ocpSuppressUntilMs != 0) && (nowMs < _ocpSuppressUntilMs);
   if (!ocpSuppressed && haveI && loadA > _ocp) {
-    // Arm grace when crossing threshold, if not already active
-    if (_ocpGraceUntilMs == 0) {
-      _ocpGraceUntilMs = nowMs + 2000; // 2s grace
-      // Reset debounce while grace is active
-      _overStartMs = 0;
-    }
-    // Only begin debounce after grace window expires
-    if (nowMs >= _ocpGraceUntilMs) {
-      if (_overStartMs == 0) _overStartMs = nowMs;
-      if ((nowMs - _overStartMs) >= _ocpTripMs) {
-        // Trip via helper to capture active relay before hard cut
-        if (!_ocpLatched) {
-          tripOcp();
-        }
+    // Begin debounce immediately when threshold is exceeded
+    if (_overStartMs == 0) _overStartMs = nowMs;
+    if ((nowMs - _overStartMs) >= _ocpTripMs) {
+      // Trip via helper to capture active relay before hard cut
+      if (!_ocpLatched) {
+        tripOcp();
       }
     }
   } else {
-    // Current back under limit: clear grace and debounce
-    _ocpGraceUntilMs = 0;
+    // Current back under limit: clear debounce
     _overStartMs = 0;
     // Do NOT auto-clear OCP when current is healthy.
     // OCP will only be cleared explicitly via clearOcpLatch() after OFF is selected.
-    // OCP auto-clear removed: latch remains until explicit clear elsewhere
   }
 
   // -------- Output Voltage Fault (dynamic): active only while under cutoff (<_outvCut) or <8V, and if >16V. --------
