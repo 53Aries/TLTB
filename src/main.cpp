@@ -31,12 +31,12 @@ static uint32_t g_otaBootMs = 0;
 static bool g_devBoot = false;   // Developer-boot mode flag
 static bool g_startupGuard = false; // Prevents relay activation until 1p8t is cycled to OFF
 
-// Cooldown timer state (20A usage limit)
-static uint32_t g_highCurrentStartMs = 0; // When >20A current started (0=not active)
+// Cooldown timer state (21A usage limit)
+static uint32_t g_highCurrentStartMs = 0; // When >21A current started (0=not active)
 static uint32_t g_cooldownStartMs = 0;    // When cooldown period started (0=not in cooldown)
 static constexpr uint32_t HIGH_CURRENT_LIMIT_MS = 120000; // 120 seconds
 static constexpr uint32_t COOLDOWN_PERIOD_MS = 120000;     // 120 seconds
-static constexpr float HIGH_CURRENT_THRESHOLD = 20.0f;     // 20 amps
+static constexpr float HIGH_CURRENT_THRESHOLD = 21.0f;     // 21 amps
 
 // LEDC (backlight)
 static const int BL_CHANNEL = 0;
