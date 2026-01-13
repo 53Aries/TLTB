@@ -132,9 +132,19 @@ namespace {
     g_prefs.putUShort(key, g_learn[i].len);
   }
 
+  // Check if RF mode is enabled (1P8T switch in position P2)
+  static bool isRfModeEnabled() {
+    // PIN_ROT_P2 is LOW when RF mode is selected (INPUT_PULLUP)
+    return (digitalRead(PIN_ROT_P2) == LOW);
+  }
+
   // Activate relay with exclusivity
   void handleTrigger(uint8_t rindex) {
     if (rindex >= (uint8_t)R_COUNT) return;
+    
+    // Check if RF mode is enabled; if not, ignore the trigger silently
+    if (!isRfModeEnabled()) return;
+    
     // Mode-aware behavior: if RV mode and BRAKE is requested, map to LEFT+RIGHT
     bool isBrake = (rindex == (uint8_t)R_BRAKE);
     bool rvMode = (getUiMode() == 1);
@@ -266,10 +276,10 @@ bool learn(int relayIndex) {
 
   while (millis() < deadline) {
     uint32_t sig, sum; uint16_t len;
-    if (!computeFromRcSwitch(sig, sum, len)) { delay(6); continue; }
+    if (!computeFromRcSwitch(sig, sum, len)) { delay(20); continue; }
     // require basic repeat consistency
     if (lastSig != 0) {
-      if (sig == lastSig && (millis() - lastAt) <= 2000) {
+      if (sig == lastSig && (millis() - lastAt) <= 3000) {
         g_learn[relayIndex].sig = sig;
         g_learn[relayIndex].sum = sum;
         g_learn[relayIndex].len = len;
@@ -279,7 +289,7 @@ bool learn(int relayIndex) {
       }
       // or accept if coarse sum is close on repeat
       uint32_t diff = (lastSum > sum) ? (lastSum - sum) : (sum - lastSum);
-      if (diff <= 6 && (millis() - lastAt) <= 2000 && (len + 2 >= lastLen && len <= lastLen + 2)) {
+      if (diff <= 6 && (millis() - lastAt) <= 3000 && (len + 2 >= lastLen && len <= lastLen + 2)) {
         g_learn[relayIndex].sig = sig;
         g_learn[relayIndex].sum = sum;
         g_learn[relayIndex].len = len;
@@ -292,7 +302,7 @@ bool learn(int relayIndex) {
     lastSum = sum;
     lastLen = len;
     lastAt = millis();
-    delay(6);
+    delay(20);
   }
   return false;
 }
@@ -312,6 +322,14 @@ bool clearAll() {
 
 int8_t getActiveRelay() {
   return activeRelay;
+}
+
+void reset() {
+  // Turn off all RF-controlled relays and clear active state
+  for (int i = 0; i < 6; ++i) {
+    relayOff((RelayIndex)i);
+  }
+  activeRelay = -1;
 }
 
 } // namespace RF

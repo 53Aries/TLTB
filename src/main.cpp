@@ -622,6 +622,12 @@ void loop() {
   if (curMode != s_prevMode) {
     // On any mode change, suppress OCP for a short window to avoid false trips during relay transitions
     protector.suppressOcpUntil(millis() + 700); // tune 500–800ms as needed
+    
+    // Reset RF state when entering or exiting RF mode
+    if (curMode == MODE_RF_ENABLE || s_prevMode == MODE_RF_ENABLE) {
+      RF::reset();
+    }
+    
     s_prevMode = curMode;
     // Only update stable mode for actual position changes, not fallback between-detent reads
     if (curMode != MODE_ALL_OFF || s_prevMode == MODE_ALL_OFF) {

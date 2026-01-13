@@ -149,6 +149,14 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     Preferences p; p.begin(NVS_NS, false); p.putString(KEY_FW_VER, tagName); p.end();
   }
 
+  // Mark the newly written app as valid to prevent rollback
+  esp_err_t mark_err = esp_ota_mark_app_valid_cancel_rollback();
+  if (mark_err != ESP_OK) {
+    char buf[64]; snprintf(buf, sizeof(buf), "Mark valid err %d", (int)mark_err);
+    status(cb, buf);
+    // Continue anyway - reboot will still occur
+  }
+
   status(cb, "OTA OK. Rebooting...");
   delay(300);
   ESP.restart();

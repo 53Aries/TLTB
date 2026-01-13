@@ -23,4 +23,7 @@ bool clearAll();
 // Get the currently active relay index from RF (-1 if none)
 int8_t getActiveRelay();
 
+// Reset RF state: disable all outputs and clear active relay
+void reset();
+
 } // namespace RF
