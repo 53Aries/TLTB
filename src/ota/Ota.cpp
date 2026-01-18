@@ -18,15 +18,35 @@ static void progress(const Callbacks& cb, size_t w, size_t t){ if (cb.onProgress
 
 static void ensureRunningMarkedValid(const Callbacks& cb){
   const esp_partition_t* running = esp_ota_get_running_partition();
-  if (!running) return;
+  if (!running) {
+    status(cb, "No running partition!");
+    return;
+  }
+  
   esp_ota_img_states_t st;
-  if (esp_ota_get_state_partition(running, &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY) {
-    status(cb, "Clearing OTA pending state...");
-    esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+  esp_err_t err = esp_ota_get_state_partition(running, &st);
+  
+  if (err != ESP_OK) {
+    char buf[64]; snprintf(buf, sizeof(buf), "Get state err %d", (int)err);
+    status(cb, buf);
+    return;
+  }
+  
+  if (st == ESP_OTA_IMG_PENDING_VERIFY) {
+    status(cb, "New firmware booted OK, marking valid...");
+    err = esp_ota_mark_app_valid_cancel_rollback();
     if (err != ESP_OK) {
-      char buf[64]; snprintf(buf, sizeof(buf), "Pending clear err %d", (int)err);
+      char buf[64]; snprintf(buf, sizeof(buf), "Mark valid err %d", (int)err);
       status(cb, buf);
+    } else {
+      status(cb, "Firmware validated successfully");
     }
+  } else if (st == ESP_OTA_IMG_VALID) {
+    status(cb, "Firmware already marked valid");
+  } else if (st == ESP_OTA_IMG_INVALID) {
+    status(cb, "WARNING: Firmware marked INVALID");
+  } else if (st == ESP_OTA_IMG_ABORTED) {
+    status(cb, "WARNING: Previous update was ABORTED");
   }
 }
 
@@ -149,13 +169,9 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     Preferences p; p.begin(NVS_NS, false); p.putString(KEY_FW_VER, tagName); p.end();
   }
 
-  // Mark the newly written app as valid to prevent rollback
-  esp_err_t mark_err = esp_ota_mark_app_valid_cancel_rollback();
-  if (mark_err != ESP_OK) {
-    char buf[64]; snprintf(buf, sizeof(buf), "Mark valid err %d", (int)mark_err);
-    status(cb, buf);
-    // Continue anyway - reboot will still occur
-  }
+  // Do NOT mark as valid here - let the partition boot in PENDING_VERIFY state.
+  // The ensureRunningMarkedValid() call at the start will mark it valid on next boot
+  // after we've verified it actually runs. This enables proper rollback protection.
 
   status(cb, "OTA OK. Rebooting...");
   delay(300);

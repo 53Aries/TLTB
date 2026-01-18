@@ -426,14 +426,15 @@ void DisplayUI::showStatus(const Telemetry& t){
         _tft->print("Cooldown: ok");
       }
 
-      // Footer only if no fault ticker
+      // Draw fault ticker first (clears bottom area)
+      drawFaultTicker(true);
+
+      // Footer only if no fault ticker (draw after drawFaultTicker so it's not overwritten)
       if (_faultMask == 0) {
         _tft->setCursor(4, yHintNoTicker);
         _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
         _tft->print("OK=Switch Mode");
       }
-
-      drawFaultTicker(true);
     }
 
     s_prevActive = activeStr;
