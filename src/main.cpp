@@ -482,9 +482,10 @@ void loop() {
           tft->fillScreen(ST77XX_RED);
           tft->setTextColor(ST77XX_WHITE, ST77XX_RED);
           tft->setTextSize(2);
-          tft->setCursor(6, 6);  tft->print("OCP TRIPPED");
+          tft->setCursor(6, 6);  tft->print("Overcurrent");
           tft->setTextSize(1);
-          tft->setCursor(6, 34); tft->print("Over-current detected.");
+          tft->setCursor(6, 34); tft->print("Overcurrent condition.");
+          tft->setCursor(6, 46); tft->print("System disabled.");
           // Additional hint: relay suspected at trip
           int8_t r = protector.ocpTripRelay();
           const char* rname = nullptr;
@@ -499,19 +500,15 @@ void loop() {
             default:       rname = nullptr;   break;
           }
           if (rname) {
-            // Render on two lines to avoid truncation
-            tft->setCursor(6, 46);
-            tft->print("Possible short circuit on");
+            // Render fault relay hint
             tft->setCursor(6, 58);
+            tft->print("Check: ");
             tft->print(rname);
-          } else {
-            tft->setCursor(6, 46);
-            tft->print("Cycle OUTPUT to OFF.");
           }
           // Footer instruction
           tft->fillRect(0, 108, 160, 20, ST77XX_BLACK);
           tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-          tft->setCursor(6, 112); tft->print("Rotate to OFF to continue");
+          tft->setCursor(6, 112); tft->print("Rotate to OFF to restart");
         }
         // Block until OFF is detected (debounced); keep relays off and extend suppression
         {
@@ -563,7 +560,7 @@ void loop() {
     if (outvLatched) {
       outvHealthySince = 0;
       if (!outvAcked) {
-  (void)ui->protectionAlarm("OUTV LOW", "12V output low.", "Possible internal fault");
+  (void)ui->protectionAlarm("OUTV LOW", "Output voltage low.", "Fault or low battery.");
         // Allow user to attempt resume: clear OUTV latch on acknowledge (hard bounds still enforced in Protector)
         protector.clearOutvLatch();
         tele.outvLatched = false;
@@ -589,7 +586,7 @@ void loop() {
     if (lvpLatched) {
       lvpHealthySince = 0;
       if (!lvpAcked) {
-        (void)ui->protectionAlarm("LVP TRIPPED", "Input voltage low.", "Press OK to continue");
+        (void)ui->protectionAlarm("LVP TRIPPED", "Input battery voltage low.", "System disabled. Charge battery.");
         // Keep LVP latched so relays remain blocked and status shows ACTIVE
         lvpAcked = true;
         // Ensure home fully repaints after leaving LVP modal

@@ -338,7 +338,7 @@ void DisplayUI::showStatus(const Telemetry& t){
       if (_faultMask == 0) {
         _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
         _tft->setCursor(4, yHintNoTicker);
-        _tft->print("OK=Menu  BACK=Home");
+        _tft->print("OK=Switch Mode");
       }
     } else {
       // Normal status display
@@ -431,7 +431,7 @@ void DisplayUI::showStatus(const Telemetry& t){
       if (_faultMask == 0) {
         _tft->setCursor(4, yHintNoTicker);
         _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-        _tft->print("OK=Menu  BACK=Home");
+        _tft->print("OK=Switch Mode");
       }
 
       drawFaultTicker(true);
