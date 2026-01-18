@@ -186,10 +186,6 @@ static uint32_t computeFaultMask(){
   if (!INA226::PRESENT)     m |= FLT_INA_LOAD_MISSING;
   if (!INA226_SRC::PRESENT) m |= FLT_INA_SRC_MISSING;
 
-  // Only flag Wi-Fi if creds exist
-  bool haveCreds = prefs.getString(KEY_WIFI_SSID, "").length() > 0;
-  if (haveCreds && WiFi.status() != WL_CONNECTED) m |= FLT_WIFI_DISCONNECTED;
-
   if (!RF::isPresent())     m |= FLT_RF_MISSING;
   return m;
 }
@@ -347,30 +343,58 @@ void setup() {
     ui->setFaultMask(computeFaultMask());
     ui->showStatus(tele);
     
+    // Critical check: INA sensors must be present for system to operate
+    if (!INA226::PRESENT || !INA226_SRC::PRESENT) {
+      // INA sensor missing - system cannot operate safely
+      tft->fillScreen(ST77XX_BLACK);
+      tft->setTextColor(ST77XX_RED);
+      tft->setTextSize(2);
+      tft->setCursor(6, 6);
+      tft->println("System Error");
+      tft->setTextSize(1);
+      tft->setTextColor(ST77XX_WHITE);
+      tft->setCursor(6, 34);
+      tft->println("Internal fault detected.");
+      tft->setCursor(6, 46);
+      tft->println("Device disabled.");
+      tft->setCursor(6, 58);
+      if (!INA226::PRESENT) tft->println("Load sensor missing.");
+      if (!INA226_SRC::PRESENT) tft->println("Source sensor missing.");
+      tft->setCursor(6, 82);
+      tft->println("Contact support.");
+      
+      // Block here forever - system inoperable
+      while(true) {
+        for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+        delay(100);
+      }
+    }
+    
     // Boot-time off-current safety check: wait 1s for system to stabilize, then verify no unexpected load
     delay(1000);
     // Read current after stabilization
     float bootCurrent = INA226::PRESENT ? INA226::readCurrentA() : 0.0f;
     if (!isnan(bootCurrent) && bootCurrent > 2.0f) {
-      // Unexpected current draw at boot - critical safety issue
+      // Unexpected current draw at boot - critical safety issue (internal short or fault)
       tft->fillScreen(ST77XX_BLACK);
       tft->setTextColor(ST77XX_RED);
       tft->setTextSize(2);
-      tft->setCursor(10, 40);
-      tft->println("UNEXPECTED");
-      tft->setCursor(10, 60);
-      tft->println("CURRENT DRAW!");
+      tft->setCursor(6, 6);
+      tft->println("System Error");
       tft->setTextSize(1);
       tft->setTextColor(ST77XX_WHITE);
-      tft->setCursor(10, 90);
-      tft->println("Power off and remove");
-      tft->setCursor(10, 100);
-      tft->println("battery NOW!");
-      tft->setCursor(10, 120);
+      tft->setCursor(6, 34);
+      tft->println("Internal fault detected.");
+      tft->setCursor(6, 46);
+      tft->println("Unexpected load current.");
+      tft->setCursor(6, 70);
+      tft->println("Remove power NOW!");
+      tft->setCursor(6, 94);
       tft->printf("Boot current: %.1fA", bootCurrent);
       // Block here forever - require power cycle
       while(true) {
-        delay(1000);
+        for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+        delay(100);
       }
     }
   }

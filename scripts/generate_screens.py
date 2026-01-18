@@ -20,6 +20,7 @@ COLORS = {
     'BLUE':    (0, 0, 255),
     'RED':     (255, 0, 0),
     'DARKGREY':(66, 66, 66),
+    'PRINTGREY':(60, 60, 60),  # Lighter grey for print-friendly backgrounds
 }
 
 # Try to use a monospaced font; fall back to PIL default
@@ -87,7 +88,7 @@ def screen_home(mode: str = 'HD', load_a: float = 0.00, active: str = 'RF',
                 system_volt_status: str = 'ok', system_volt_v: float = 12.8,
                 cooldown_status: str = 'ok', cooldown_secs: int = 0,
                 fault: str | None = None, focus_mode: bool = False):
-    img = Image.new('RGB', (W, H), COLORS['BLACK'])
+    img = Image.new('RGB', (W, H), COLORS['PRINTGREY'])
     d = ImageDraw.Draw(img)
 
     # Layout mirrors DisplayUI::showStatus constants
@@ -102,7 +103,7 @@ def screen_home(mode: str = 'HD', load_a: float = 0.00, active: str = 'RF',
     yHint, hHint = 114, 12
 
     # MODE line (size=2) with optional focus highlight
-    bg = 'BLUE' if focus_mode else 'BLACK'
+    bg = 'BLUE' if focus_mode else 'PRINTGREY'
     draw_text(img, d, 4, yMode, f"MODE: {mode}", color='WHITE', size=2, bg=bg)
 
     # Load (size=2) with color coding
@@ -172,7 +173,7 @@ def screen_home(mode: str = 'HD', load_a: float = 0.00, active: str = 'RF',
 
 
 def screen_menu(selected: int = 0):
-    img = Image.new('RGB', (W, H), COLORS['BLACK'])
+    img = Image.new('RGB', (W, H), COLORS['PRINTGREY'])
     d = ImageDraw.Draw(img)
 
     items = [
@@ -208,7 +209,7 @@ def screen_menu(selected: int = 0):
 def screen_system_info(fw: str = "v1.0.2", wifi: str = "OK 192.168.1.23", 
                        batt_bypass: bool = False, sys_bypass: bool = False,
                        faults: list[str] | None = None):
-    img = Image.new('RGB', (W, H), COLORS['BLACK'])
+    img = Image.new('RGB', (W, H), COLORS['PRINTGREY'])
     d = ImageDraw.Draw(img)
 
     draw_text(img, d, 4, 6, "System Info & Faults", color='CYAN', size=1)
@@ -233,7 +234,7 @@ def screen_system_info(fw: str = "v1.0.2", wifi: str = "OK 192.168.1.23",
 
 
 def screen_simple_title_body(title: str, lines: list[str]):
-    img = Image.new('RGB', (W, H), COLORS['BLACK'])
+    img = Image.new('RGB', (W, H), COLORS['PRINTGREY'])
     d = ImageDraw.Draw(img)
     draw_text(img, d, 6, 10, title, size=1)
     y = 28
@@ -411,17 +412,17 @@ def generate_all(scale: int = 1):
     save(screen_simple_title_body('Scan Done', ['All relays tested.']), 'scan_done', scale)
 
     # OCP modal (matches main.cpp implementation)
-    img = Image.new('RGB', (W, H), COLORS['BLACK'])
+    img = Image.new('RGB', (W, H), COLORS['PRINTGREY'])
     d = ImageDraw.Draw(img)
-    # Red background
-    d.rectangle([0, 0, W, H], fill=COLORS['RED'])
+    # Dark grey background for print-friendliness
+    d.rectangle([0, 0, W, H], fill=COLORS['PRINTGREY'])
     
-    draw_text(img, d, 6, 6, 'Overcurrent', color='WHITE', size=2, bg='RED')
-    draw_text(img, d, 6, 34, 'Overcurrent condition.', color='WHITE', size=1, bg='RED')
-    draw_text(img, d, 6, 46, 'System disabled.', color='WHITE', size=1, bg='RED')
+    draw_text(img, d, 6, 6, 'Overcurrent', color='WHITE', size=2, bg='PRINTGREY')
+    draw_text(img, d, 6, 34, 'Overcurrent condition.', color='WHITE', size=1, bg='PRINTGREY')
+    draw_text(img, d, 6, 46, 'System disabled.', color='WHITE', size=1, bg='PRINTGREY')
     
     # Optional: show suspected relay (example with LEFT)
-    draw_text(img, d, 6, 58, 'Check: LEFT', color='WHITE', size=1, bg='RED')
+    draw_text(img, d, 6, 58, 'Check: LEFT', color='WHITE', size=1, bg='PRINTGREY')
     
     # Footer instruction (black bar)
     d.rectangle([0, 108*SCALE_FACTOR, W, 128*SCALE_FACTOR], fill=COLORS['BLACK'])
@@ -429,15 +430,15 @@ def generate_all(scale: int = 1):
     save(img, 'ocp_modal', scale)
 
     # LVP modal (uses protectionAlarm)
-    img = Image.new('RGB', (W, H), COLORS['BLACK'])
+    img = Image.new('RGB', (W, H), COLORS['PRINTGREY'])
     d = ImageDraw.Draw(img)
-    d.rectangle([0, 0, W, H], fill=COLORS['RED'])
+    d.rectangle([0, 0, W, H], fill=COLORS['PRINTGREY'])
     
-    draw_text(img, d, 6, 6, 'LVP TRIPPED', color='WHITE', size=2, bg='RED')
-    draw_text(img, d, 6, 28, 'Input battery voltage low.', color='WHITE', size=1, bg='RED')
-    draw_text(img, d, 6, 40, 'System disabled to prevent', color='WHITE', size=1, bg='RED')
-    draw_text(img, d, 6, 52, 'battery damage.', color='WHITE', size=1, bg='RED')
-    draw_text(img, d, 6, 64, 'Charge or replace battery.', color='WHITE', size=1, bg='RED')
+    draw_text(img, d, 6, 6, 'LVP TRIPPED', color='WHITE', size=2, bg='PRINTGREY')
+    draw_text(img, d, 6, 28, 'Input battery voltage low.', color='WHITE', size=1, bg='PRINTGREY')
+    draw_text(img, d, 6, 40, 'System disabled to prevent', color='WHITE', size=1, bg='PRINTGREY')
+    draw_text(img, d, 6, 52, 'battery damage.', color='WHITE', size=1, bg='PRINTGREY')
+    draw_text(img, d, 6, 64, 'Charge or replace battery.', color='WHITE', size=1, bg='PRINTGREY')
     
     # Footer instruction (black bar)
     d.rectangle([0, 108*SCALE_FACTOR, W, 128*SCALE_FACTOR], fill=COLORS['BLACK'])
@@ -445,20 +446,44 @@ def generate_all(scale: int = 1):
     save(img, 'lvp_modal', scale)
 
     # OUTV modal (uses protectionAlarm)
-    img = Image.new('RGB', (W, H), COLORS['BLACK'])
+    img = Image.new('RGB', (W, H), COLORS['PRINTGREY'])
     d = ImageDraw.Draw(img)
-    d.rectangle([0, 0, W, H], fill=COLORS['RED'])
+    d.rectangle([0, 0, W, H], fill=COLORS['PRINTGREY'])
     
-    draw_text(img, d, 6, 6, 'OUTV LOW', color='WHITE', size=2, bg='RED')
-    draw_text(img, d, 6, 28, 'Output voltage low.', color='WHITE', size=1, bg='RED')
-    draw_text(img, d, 6, 40, 'Possible internal fault or', color='WHITE', size=1, bg='RED')
-    draw_text(img, d, 6, 52, 'battery voltage low.', color='WHITE', size=1, bg='RED')
-    draw_text(img, d, 6, 64, 'Charge or replace battery.', color='WHITE', size=1, bg='RED')
+    draw_text(img, d, 6, 6, 'OUTV LOW', color='WHITE', size=2, bg='PRINTGREY')
+    draw_text(img, d, 6, 28, 'Output voltage low.', color='WHITE', size=1, bg='PRINTGREY')
+    draw_text(img, d, 6, 40, 'Possible internal fault or', color='WHITE', size=1, bg='PRINTGREY')
+    draw_text(img, d, 6, 52, 'battery voltage low.', color='WHITE', size=1, bg='PRINTGREY')
+    draw_text(img, d, 6, 64, 'Charge or replace battery.', color='WHITE', size=1, bg='PRINTGREY')
     
     # Footer instruction (black bar)
     d.rectangle([0, 108*SCALE_FACTOR, W, 128*SCALE_FACTOR], fill=COLORS['BLACK'])
     draw_text(img, d, 6, 112, 'OK=Clear latch', color='YELLOW', size=1)
     save(img, 'outv_modal', scale)
+
+    # System Error modal (INA sensor missing - blocking)
+    img = Image.new('RGB', (W, H), COLORS['PRINTGREY'])
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, W, H], fill=COLORS['PRINTGREY'])
+    
+    draw_text(img, d, 6, 6, 'System Error', color='RED', size=2, bg='PRINTGREY')
+    draw_text(img, d, 6, 34, 'Internal fault detected.', color='WHITE', size=1, bg='PRINTGREY')
+    draw_text(img, d, 6, 46, 'Device disabled.', color='WHITE', size=1, bg='PRINTGREY')
+    draw_text(img, d, 6, 58, 'Load sensor missing.', color='WHITE', size=1, bg='PRINTGREY')
+    draw_text(img, d, 6, 82, 'Contact support.', color='WHITE', size=1, bg='PRINTGREY')
+    save(img, 'system_error_modal', scale)
+
+    # System Error modal (Unexpected boot current - blocking)
+    img = Image.new('RGB', (W, H), COLORS['PRINTGREY'])
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, W, H], fill=COLORS['PRINTGREY'])
+    
+    draw_text(img, d, 6, 6, 'System Error', color='RED', size=2, bg='PRINTGREY')
+    draw_text(img, d, 6, 34, 'Internal fault detected.', color='WHITE', size=1, bg='PRINTGREY')
+    draw_text(img, d, 6, 46, 'Unexpected load current.', color='WHITE', size=1, bg='PRINTGREY')
+    draw_text(img, d, 6, 70, 'Remove power NOW!', color='RED', size=1, bg='PRINTGREY')
+    draw_text(img, d, 6, 94, 'Boot current: 12.3A', color='WHITE', size=1, bg='PRINTGREY')
+    save(img, 'system_error_boot_current', scale)
 
 
 if __name__ == '__main__':
