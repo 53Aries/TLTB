@@ -806,11 +806,15 @@ void DisplayUI::tick(const Telemetry& t){
         (!isnan(t.outV) && !isnan(_last.outV) && fabsf(t.outV - _last.outV) > 0.05f) ||
         (t.lvpLatched != _last.lvpLatched) ||
         (t.ocpLatched != _last.ocpLatched) ||
+        (t.cooldownActive != _last.cooldownActive) ||
+        (t.cooldownSecsRemaining != _last.cooldownSecsRemaining) ||
         _needRedraw
       );
 
   uint32_t now = millis();
-  if (now - _lastMs >= 33) {           // ~30 Hz refresh
+  // Update every 1 second when cooldown timer is active or counting down
+  uint32_t refreshInterval = (t.cooldownActive || t.cooldownSecsRemaining > 0) ? 1000 : 33;
+  if (now - _lastMs >= refreshInterval) {           // 1s refresh during cooldown, otherwise ~30 Hz
     if (_inMenu) {
       if (_needRedraw || d || ok || back) drawMenu();
       _needRedraw = false;
