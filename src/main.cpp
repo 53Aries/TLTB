@@ -208,9 +208,16 @@ void setup() {
     const esp_partition_t* running = esp_ota_get_running_partition();
     if (running) {
       esp_ota_img_states_t st;
-      if (esp_ota_get_state_partition(running, &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY) {
-        g_otaPendingVerify = true;
-        g_otaBootMs = millis();
+      esp_err_t err = esp_ota_get_state_partition(running, &st);
+      if (err == ESP_OK) {
+        if (st == ESP_OTA_IMG_PENDING_VERIFY) {
+          g_otaPendingVerify = true;
+          g_otaBootMs = millis();
+          // Note: Validation will occur after 8s of stable operation
+        } else if (st == ESP_OTA_IMG_INVALID) {
+          // Previous OTA failed validation and rolled back
+          // This boot is on the old firmware
+        }
       }
     }
   }
@@ -310,6 +317,17 @@ void setup() {
   ui->setEncoderReaders(readEncoderStep, okPressedEdge, backPressed);
 
   ui->begin(prefs);               // shows splash, applies brightness
+
+  // Show OTA validation status if pending
+  if (g_otaPendingVerify) {
+    tft->setTextColor(ST77XX_YELLOW);
+    tft->setTextSize(1);
+    tft->setCursor(6, 110);
+    tft->println("New firmware booted...");
+    tft->setCursor(6, 120);
+    tft->println("Validating...");
+    delay(1500); // Let user see the message
+  }
 
   if (g_devBoot) {
     ui->setFaultMask(0);
@@ -628,9 +646,43 @@ void loop() {
 
   // If we booted a new OTA image in PENDING_VERIFY, mark it valid after a short stable run
   if (g_otaPendingVerify) {
-    if (millis() - g_otaBootMs > 8000) { // ~8 seconds of healthy loop
-      esp_ota_mark_app_valid_cancel_rollback();
-      g_otaPendingVerify = false;
+    uint32_t elapsed = millis() - g_otaBootMs;
+    if (elapsed > 8000) { // ~8 seconds of healthy loop
+      // Verify system is stable before marking valid
+      bool systemHealthy = true;
+      
+      // Check critical subsystems (if not in dev mode)
+      if (!g_devBoot) {
+        systemHealthy = INA226::PRESENT && INA226_SRC::PRESENT;
+      }
+      
+      if (systemHealthy) {
+        esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+        if (err == ESP_OK) {
+          // Successfully validated - firmware is now permanent
+          g_otaPendingVerify = false;
+          // Brief visual confirmation
+          if (tft && ui && !ui->menuActive()) {
+            tft->fillRect(0, 150, 160, 10, ST77XX_GREEN);
+            delay(200);
+          }
+        } else {
+          // Failed to mark valid - this is critical, will rollback on next boot
+          // Keep trying periodically
+          if (elapsed > 15000) {
+            // After 15s, give up and let rollback happen
+            g_otaPendingVerify = false;
+            // Show warning
+            if (tft && ui && !ui->menuActive()) {
+              tft->fillRect(0, 150, 160, 10, ST77XX_RED);
+            }
+          }
+        }
+      } else {
+        // System unhealthy - don't validate, allow rollback
+        // This prevents validating broken firmware
+        g_otaPendingVerify = false;
+      }
     }
   }
 
