@@ -9,6 +9,7 @@
 #include <Preferences.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
+#include <esp_task_wdt.h>
 #include "prefs.hpp"
 
 namespace Ota {
@@ -142,11 +143,24 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
 
   status(cb, "Downloading...");
 
+  // Keep WiFi alive and stabilize power before heavy download
+  WiFi.setSleep(false);
+  delay(100); // Let power rails stabilize
+  
+  // Reduce WiFi TX power to prevent brown-out during download
+  WiFi.setTxPower(WIFI_POWER_15dBm); // Reduced from default 20dBm
+
   // 3) Stream the binary to Update
-  if (!beginDownload(assetUrl, http, cb)) return false;
+  if (!beginDownload(assetUrl, http, cb)) {
+    return false;
+  }
   int contentLen = http.getSize();
   int remaining = contentLen;
   WiFiClient* stream = http.getStreamPtr();
+  
+  char sizeBuf[32];
+  snprintf(sizeBuf, sizeof(sizeBuf), "Size: %d bytes", contentLen);
+  status(cb, sizeBuf);
 
   if (!Update.begin(contentLen > 0 ? contentLen : UPDATE_SIZE_UNKNOWN)) {
     status(cb, "Update.begin fail");
@@ -170,6 +184,7 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
       if (contentLen > 0) remaining -= c;
       progress(cb, written, contentLen > 0 ? (size_t)contentLen : 0);
     } else {
+      yield(); // Let ESP32 handle background tasks
       delay(1);
     }
   }
