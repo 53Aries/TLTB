@@ -184,11 +184,33 @@ namespace {
 namespace RF {
 
 bool begin() {
-  // use pull-up on data pin
-  pinMode(PIN_RF_DATA, INPUT_PULLUP);
-  g_rc.enableReceive(digitalPinToInterrupt(PIN_RF_DATA));
+  // Configure RF data pin as plain INPUT (no pull-up - SYN480R has its own output driver)
+  pinMode(PIN_RF_DATA, INPUT);
+  
+  // Verify the pin supports interrupts
+  int8_t interruptNum = digitalPinToInterrupt(PIN_RF_DATA);
+  if (interruptNum == NOT_AN_INTERRUPT) {
+    Serial.println("[RF] ERROR: PIN_RF_DATA does not support interrupts!");
+    return false;
+  }
+  
+  // Configure rc-switch with more tolerant settings for better compatibility
+  g_rc.enableReceive(interruptNum);
+  
+  // Set receive tolerance (default is 60, increase for noisy/marginal signals)
+  // Higher values = more tolerant of timing variations
+  g_rc.setReceiveTolerance(80);
+  
+  // Optional: Enable specific protocols if you know which one your remote uses
+  // Uncomment and adjust if you want to filter protocols:
+  // g_rc.enableReceive(interruptNum);
+  // g_rc.disableReceive();
+  // g_rc.setProtocol(1); // Enable only protocol 1
+  // g_rc.enableReceive(interruptNum);
+  
   loadPrefs();
   g_last_activity_ms = millis();
+  Serial.println("[RF] Initialized successfully");
   return true;
 }
 
@@ -273,10 +295,13 @@ bool learn(int relayIndex) {
   uint32_t deadline = millis() + 8000;
   uint32_t lastSig = 0, lastSum = 0, lastAt = 0;
   uint16_t lastLen = 0;
+  
+  Serial.printf("[RF] Learning for relay %d (press button now)...\n", relayIndex);
 
   while (millis() < deadline) {
     uint32_t sig, sum; uint16_t len;
     if (!computeFromRcSwitch(sig, sum, len)) { delay(20); continue; }
+    Serial.printf("[RF] Learn: Received sig=%lu sum=%lu len=%u\n", sig, sum, len);
     // require basic repeat consistency
     if (lastSig != 0) {
       if (sig == lastSig && (millis() - lastAt) <= 3000) {
@@ -304,6 +329,7 @@ bool learn(int relayIndex) {
     lastAt = millis();
     delay(20);
   }
+  Serial.println("[RF] Learning timeout - no consistent signal received");
   return false;
 }
 
