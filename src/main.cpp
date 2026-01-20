@@ -318,6 +318,37 @@ void setup() {
 
   ui->begin(prefs);               // shows splash, applies brightness
 
+  // Check for buck shutdown event (extreme current detected before power loss)
+  {
+    float extremeI = prefs.getFloat(KEY_EXTREME_I, 0.0f);
+    if (extremeI >= 35.0f) {
+      // Buck OCP likely caused shutdown - warn user
+      tft->fillScreen(ST77XX_RED);
+      tft->setTextColor(ST77XX_WHITE, ST77XX_RED);
+      tft->setTextSize(2);
+      tft->setCursor(6, 6);
+      tft->print("Overcurrent");
+      tft->setTextSize(1);
+      tft->setCursor(6, 34);
+      tft->print("Extreme overcurrent");
+      tft->setCursor(6, 46);
+      tft->print("detected before restart.");
+      tft->setCursor(6, 70);
+      tft->printf("Current: %.1fA", extremeI);
+      tft->setCursor(6, 82);
+      tft->print("Possible short circuit.");
+      // Footer instruction
+      tft->fillRect(0, 108, 160, 20, ST77XX_BLACK);
+      tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+      tft->setCursor(6, 112);
+      tft->print("Check wiring & loads");
+      delay(4000); // Give user time to read
+      // Clear flag so we don't show on every boot
+      prefs.remove(KEY_EXTREME_I);
+      tft->fillScreen(ST77XX_BLACK);
+    }
+  }
+
   // Show OTA validation status if pending
   if (g_otaPendingVerify) {
     tft->setTextColor(ST77XX_YELLOW);

@@ -65,8 +65,8 @@ void INA226::begin(){
   if (!PRESENT) return;
 
   wr16(ADDR_LOAD, 0x00, 0x8000); delay(2);
-  // AVG=16, VBUS=1.1ms, VSHUNT=1.1ms, continuous
-  wr16(ADDR_LOAD, 0x00, (0b010<<9)|(0b100<<6)|(0b100<<3)|0b111);
+  // AVG=4, VBUS=332µs, VSHUNT=332µs, continuous (fast OCP detection: ~2.7ms per reading)
+  wr16(ADDR_LOAD, 0x00, (0b001<<9)|(0b010<<6)|(0b010<<3)|0b111);
   wr16(ADDR_LOAD, 0x05, CALIB);
   // Load invert preference
   s_invertLoad = prefs.getBool(KEY_CURR_INV, false);
@@ -107,7 +107,8 @@ void INA226_SRC::begin(){
   if (!PRESENT) return;
 
   wr16(ADDR_SRC, 0x00, 0x8000); delay(2);
-  wr16(ADDR_SRC, 0x00, (0b010<<9)|(0b100<<6)|(0b100<<3)|0b111);
+  // AVG=4, VBUS=332µs, VSHUNT=332µs, continuous (fast sampling: ~2.7ms per reading)
+  wr16(ADDR_SRC, 0x00, (0b001<<9)|(0b010<<6)|(0b010<<3)|0b111);
   wr16(ADDR_SRC, 0x05, CALIB);
 }
 

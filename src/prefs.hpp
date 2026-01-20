@@ -20,6 +20,8 @@ static constexpr const char* KEY_OTA_URL     = "ota_url";
 static constexpr const char* KEY_CURR_INV    = "cur_inv";
 // Persisted RF bit-bang orientation key (0=none,1=normal,2=swapped)
 static constexpr const char* KEY_RF_BB_ORIENT = "rf_bb_or";
+// Extreme current event detection (for buck OCP shutdown detection)
+static constexpr const char* KEY_EXTREME_I = "ext_i";
 #define KEY_FW_VER       "fw_ver"
 #ifndef OTA_LATEST_ASSET_URL
 #define OTA_LATEST_ASSET_URL ""

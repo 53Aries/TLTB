@@ -17,36 +17,6 @@ namespace Ota {
 static void status(const Callbacks& cb, const char* s){ if (cb.onStatus) cb.onStatus(s); }
 static void progress(const Callbacks& cb, size_t w, size_t t){ if (cb.onProgress) cb.onProgress(w,t); }
 
-static void ensureRunningMarkedValid(const Callbacks& cb){
-  const esp_partition_t* running = esp_ota_get_running_partition();
-  if (!running) {
-    status(cb, "No running partition!");
-    return;
-  }
-  
-  esp_ota_img_states_t st;
-  esp_err_t err = esp_ota_get_state_partition(running, &st);
-  
-  if (err != ESP_OK) {
-    char buf[64]; snprintf(buf, sizeof(buf), "Get state err %d", (int)err);
-    status(cb, buf);
-    return;
-  }
-  
-  if (st == ESP_OTA_IMG_PENDING_VERIFY) {
-    status(cb, "WARNING: Firmware still pending verification!");
-    status(cb, "Skipping OTA - let firmware stabilize first");
-    // DO NOT mark as valid here during OTA - this creates race conditions.
-    // The firmware must complete its own validation cycle first.
-  } else if (st == ESP_OTA_IMG_VALID) {
-    status(cb, "Firmware already marked valid");
-  } else if (st == ESP_OTA_IMG_INVALID) {
-    status(cb, "WARNING: Firmware marked INVALID");
-  } else if (st == ESP_OTA_IMG_ABORTED) {
-    status(cb, "WARNING: Previous update was ABORTED");
-  }
-}
-
 static void describePartitions(const Callbacks& cb){
   const esp_partition_t* running = esp_ota_get_running_partition();
   const esp_partition_t* next    = esp_ota_get_next_update_partition(nullptr);
@@ -86,31 +56,15 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   const esp_partition_t* running = esp_ota_get_running_partition();
   if (running) {
     esp_ota_img_states_t st;
-    esp_err_t err = esp_ota_get_state_partition(running, &st);
-    if (err == ESP_OK) {
+    if (esp_ota_get_state_partition(running, &st) == ESP_OK) {
       if (st == ESP_OTA_IMG_PENDING_VERIFY) {
-        status(cb, "ERROR: Current firmware not yet verified");
-        status(cb, "Wait 10 seconds after boot before updating");
+        status(cb, "ERROR: Firmware not yet verified");
+        status(cb, "Wait 10 seconds after boot");
         return false;
-      } else if (st == ESP_OTA_IMG_INVALID) {
-        status(cb, "ERROR: Current firmware marked invalid");
-        status(cb, "System may be unstable - OTA blocked");
-        return false;
-      } else if (st == ESP_OTA_IMG_ABORTED) {
-        status(cb, "WARNING: Previous OTA was aborted");
-        // Continue with OTA but user is warned
       }
-    } else {
-      char buf[64]; snprintf(buf, sizeof(buf), "Partition state check failed: %d", (int)err);
-      status(cb, buf);
-      return false;
     }
-  } else {
-    status(cb, "ERROR: Cannot get running partition");
-    return false;
   }
 
-  ensureRunningMarkedValid(cb);
   describePartitions(cb);
 
   // 1) Query latest release API
@@ -162,7 +116,7 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   snprintf(sizeBuf, sizeof(sizeBuf), "Size: %d bytes", contentLen);
   status(cb, sizeBuf);
 
-  if (!Update.begin(contentLen > 0 ? contentLen : UPDATE_SIZE_UNKNOWN)) {
+  if (!Update.begin(contentLen)) {
     status(cb, "Update.begin fail");
     http.end();
     return false;
@@ -190,16 +144,17 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   }
   http.end();
 
-  if (!Update.end(true)) {
-    uint8_t err = Update.getError();
-    const char* errStr = Update.errorString();
-    char buf[96];
-    if (errStr && errStr[0]) {
-      snprintf(buf, sizeof(buf), "End err %u: %s", err, errStr);
-    } else {
-      snprintf(buf, sizeof(buf), "End err %u", err);
-    }
+  // Verify we wrote the expected amount
+  if (contentLen > 0 && written != (size_t)contentLen) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Size mismatch: got %u, expected %d", (unsigned)written, contentLen);
     status(cb, buf);
+    Update.abort();
+    return false;
+  }
+
+  if (!Update.end(true)) {
+    status(cb, "Update.end fail");
     return false;
   }
 
@@ -207,23 +162,6 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   if (tagName.length() > 0) {
     Preferences p; p.begin(NVS_NS, false); p.putString(KEY_FW_VER, tagName); p.end();
   }
-
-  // Verify the update was successful and partition is ready
-  const esp_partition_t* next = esp_ota_get_next_update_partition(nullptr);
-  if (next) {
-    esp_ota_img_states_t st;
-    esp_err_t err = esp_ota_get_state_partition(next, &st);
-    if (err == ESP_OK) {
-      // New partition should be in NEW or UNDEFINED state, ready to boot
-      char buf[64]; 
-      snprintf(buf, sizeof(buf), "New partition state: %d", (int)st);
-      status(cb, buf);
-    }
-  }
-
-  // Do NOT mark as valid here - let the partition boot in PENDING_VERIFY state.
-  // The main.cpp loop will mark it valid after 8 seconds of stable operation.
-  // This enables proper rollback protection if the new firmware crashes.
 
   status(cb, "OTA OK. Rebooting...");
   delay(500); // Longer delay to ensure NVS write completes

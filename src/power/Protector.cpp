@@ -125,6 +125,29 @@ void Protector::tick(float srcV, float loadA, float outV, uint32_t nowMs) {
   const bool haveI = !isnan(loadA);
   const bool haveOutV = !isnan(outV);
 
+  // -------- Extreme current detection (buck shutdown pre-logging) --------
+  // If current exceeds extreme threshold, immediately log to NVS once
+  // This helps detect buck OCP shutdowns that cause sudden power loss
+  static bool extremeLogged = false;
+  if (haveI && loadA >= EXTREME_CURRENT_A) {
+    if (!extremeLogged && _prefs) {
+      // Write once and commit immediately for fastest persistence
+      _prefs->putFloat(KEY_EXTREME_I, loadA);
+      extremeLogged = true; // Only write once per boot to avoid repeated NVS wear
+    }
+  } else if (haveI && loadA < (_ocp - 5.0f)) {
+    // Current is well below OCP limit - clear any stale extreme current flag
+    // Do this periodically but not too often (every ~few seconds is fine)
+    static uint32_t lastClearMs = 0;
+    if ((nowMs - lastClearMs) > 5000) {
+      if (_prefs && _prefs->isKey(KEY_EXTREME_I)) {
+        _prefs->remove(KEY_EXTREME_I);
+      }
+      lastClearMs = nowMs;
+      extremeLogged = false; // Reset flag when cleared so it can log again if needed
+    }
+  }
+
   // -------- LVP (debounced), ignored if bypass enabled --------
   if (!_lvpBypass && haveV && srcV < _lvp) {
     if (_belowStartMs == 0) _belowStartMs = nowMs;
@@ -133,15 +156,26 @@ void Protector::tick(float srcV, float loadA, float outV, uint32_t nowMs) {
     _belowStartMs = 0; // reset debounce if above threshold / missing / bypassing
   }
 
-  // -------- OCP with transient suppression + debounce (no grace period) --------
+  // -------- OCP with transient suppression + two-tier protection --------
+  // Tier 1: Instant trip for extreme overcurrent (>2x OCP limit) - likely short circuit
+  // Tier 2: Fast debounced trip for moderate overload (>OCP limit, <2x OCP limit)
   bool ocpSuppressed = (_ocpSuppressUntilMs != 0) && (nowMs < _ocpSuppressUntilMs);
   if (!ocpSuppressed && haveI && loadA > _ocp) {
-    // Begin debounce immediately when threshold is exceeded
-    if (_overStartMs == 0) _overStartMs = nowMs;
-    if ((nowMs - _overStartMs) >= _ocpTripMs) {
-      // Trip via helper to capture active relay before hard cut
+    // Check for extreme overcurrent requiring instant trip
+    float instantTripThreshold = _ocp * OCP_INSTANT_MULTIPLIER;
+    if (loadA >= instantTripThreshold) {
+      // INSTANT TRIP: No debounce for catastrophic overcurrent (likely short)
       if (!_ocpLatched) {
         tripOcp();
+      }
+    } else {
+      // MODERATE OVERLOAD: Use reduced debounce (10ms instead of 25ms)
+      if (_overStartMs == 0) _overStartMs = nowMs;
+      const uint32_t fastTripMs = 10;  // Reduced from 25ms for faster moderate overload response
+      if ((nowMs - _overStartMs) >= fastTripMs) {
+        if (!_ocpLatched) {
+          tripOcp();
+        }
       }
     }
   } else {
