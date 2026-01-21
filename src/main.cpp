@@ -25,9 +25,6 @@ static Adafruit_ST7735* tft = nullptr;   // shared SPI
 static DisplayUI* ui = nullptr;
 Preferences prefs;
 static Telemetry tele{};
-// OTA rollback verification
-static bool g_otaPendingVerify = false;
-static uint32_t g_otaBootMs = 0;
 static bool g_devBoot = false;   // Developer-boot mode flag
 static bool g_startupGuard = false; // Prevents relay activation until 1p8t is cycled to OFF
 
@@ -204,21 +201,13 @@ void setup() {
   delay(60);
 
   // Check if this app is booting in pending-verify state (OTA rollback flow)
+  // NOTE: Rollback validation disabled - using simple OTA without state tracking
+  // to avoid OTA data partition corruption issues
   {
+    // Just log partition info for debugging
     const esp_partition_t* running = esp_ota_get_running_partition();
     if (running) {
-      esp_ota_img_states_t st;
-      esp_err_t err = esp_ota_get_state_partition(running, &st);
-      if (err == ESP_OK) {
-        if (st == ESP_OTA_IMG_PENDING_VERIFY) {
-          g_otaPendingVerify = true;
-          g_otaBootMs = millis();
-          // Note: Validation will occur after 8s of stable operation
-        } else if (st == ESP_OTA_IMG_INVALID) {
-          // Previous OTA failed validation and rolled back
-          // This boot is on the old firmware
-        }
-      }
+      // Running from partition: running->label
     }
   }
   pinMode(PIN_ENC_A,    INPUT_PULLUP);
@@ -226,12 +215,41 @@ void setup() {
   pinMode(PIN_ENC_OK,   INPUT_PULLUP); // OK: idle HIGH (~3V3), pressed LOW
   pinMode(PIN_ENC_BACK, INPUT_PULLUP);
 
-  // Dev boot detection: BACK button held during power-on (simplified)
-  // Use a short settling delay then sample BACK; no rotary position required.
+  // Dev boot detection: BACK button held during power-on
+  // Short press = dev mode, Long press (5s) = boot from other partition (recovery)
   delay(5);
   if (digitalRead(PIN_ENC_BACK) == LOW) {
-    g_devBoot = true;
-    // Wait for BACK release so the UI menu is not immediately closed by a held button
+    uint32_t holdStart = millis();
+    bool longPress = false;
+    
+    // Wait for release or 5 second timeout
+    while (digitalRead(PIN_ENC_BACK) == LOW) {
+      if (millis() - holdStart >= 5000) {
+        longPress = true;
+        break;
+      }
+      delay(10);
+    }
+    
+    if (longPress) {
+      // Recovery mode: boot from other partition
+      const esp_partition_t* running = esp_ota_get_running_partition();
+      const esp_partition_t* other = esp_ota_get_next_update_partition(running);
+      if (other && other != running) {
+        // Set boot partition to the other one
+        esp_err_t err = esp_ota_set_boot_partition(other);
+        if (err == ESP_OK) {
+          // Reboot to other partition
+          ESP.restart();
+        }
+      }
+      // If we get here, recovery failed - fall through to dev mode
+      g_devBoot = true;
+    } else {
+      g_devBoot = true;
+    }
+    
+    // Wait for button release
     while (digitalRead(PIN_ENC_BACK) == LOW) {
       delay(1);
     }
@@ -347,17 +365,6 @@ void setup() {
       prefs.remove(KEY_EXTREME_I);
       tft->fillScreen(ST77XX_BLACK);
     }
-  }
-
-  // Show OTA validation status if pending
-  if (g_otaPendingVerify) {
-    tft->setTextColor(ST77XX_YELLOW);
-    tft->setTextSize(1);
-    tft->setCursor(6, 110);
-    tft->println("New firmware booted...");
-    tft->setCursor(6, 120);
-    tft->println("Validating...");
-    delay(1500); // Let user see the message
   }
 
   if (g_devBoot) {
@@ -675,47 +682,8 @@ void loop() {
     }
   }
 
-  // If we booted a new OTA image in PENDING_VERIFY, mark it valid after a short stable run
-  if (g_otaPendingVerify) {
-    uint32_t elapsed = millis() - g_otaBootMs;
-    if (elapsed > 8000) { // ~8 seconds of healthy loop
-      // Verify system is stable before marking valid
-      bool systemHealthy = true;
-      
-      // Check critical subsystems (if not in dev mode)
-      if (!g_devBoot) {
-        systemHealthy = INA226::PRESENT && INA226_SRC::PRESENT;
-      }
-      
-      if (systemHealthy) {
-        esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
-        if (err == ESP_OK) {
-          // Successfully validated - firmware is now permanent
-          g_otaPendingVerify = false;
-          // Brief visual confirmation
-          if (tft && ui && !ui->menuActive()) {
-            tft->fillRect(0, 150, 160, 10, ST77XX_GREEN);
-            delay(200);
-          }
-        } else {
-          // Failed to mark valid - this is critical, will rollback on next boot
-          // Keep trying periodically
-          if (elapsed > 15000) {
-            // After 15s, give up and let rollback happen
-            g_otaPendingVerify = false;
-            // Show warning
-            if (tft && ui && !ui->menuActive()) {
-              tft->fillRect(0, 150, 160, 10, ST77XX_RED);
-            }
-          }
-        }
-      } else {
-        // System unhealthy - don't validate, allow rollback
-        // This prevents validating broken firmware
-        g_otaPendingVerify = false;
-      }
-    }
-  }
+  // OTA validation disabled - using simple OTA
+  // (Rollback protection removed to fix OTA data partition corruption)
 
   // Let RF run, but we will enforce rotary below unless in MODE_RF_ENABLE
   RF::service();

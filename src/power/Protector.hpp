@@ -8,7 +8,7 @@
 // LVP can be bypassed via setLvpBypass(true).
 class Protector {
 public:
-  void begin(Preferences* prefs, float lvpDefault = 17.0f, float ocpDefault = 22.0f);
+  void begin(Preferences* prefs, float lvpDefault = 16.5f, float ocpDefault = 22.0f);
   void tick(float srcV, float loadA, float outV, uint32_t nowMs);
 
   bool isLvpLatched() const { return _lvpLatched; }

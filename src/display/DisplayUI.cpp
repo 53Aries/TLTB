@@ -364,11 +364,13 @@ void DisplayUI::showStatus(const Telemetry& t){
           // Choose value color: <15A green, 15–<20A yellow, >=20A red
         float shownA = fabsf(t.loadA);
         if (shownA > 25.5f) shownA = 25.5f; // cap display at OCP max
+        // Round to nearest tenth for stable display
+        shownA = roundf(shownA * 10.0f) / 10.0f;
           uint16_t valColor = ST77XX_GREEN;            // <15A
           if (shownA >= 20.0f)      valColor = ST77XX_RED;     // >=20A up to 25.5A
           else if (shownA >= 15.0f) valColor = ST77XX_YELLOW;  // 15–<20A
         _tft->setTextColor(valColor, ST77XX_BLACK);
-        _tft->printf("%4.2f A", shownA);
+        _tft->printf("%4.1f A", shownA);
       }
 
       // Line 2: Active (auto size)
@@ -477,7 +479,7 @@ void DisplayUI::showStatus(const Telemetry& t){
   }
 
   if ((isnan(t.loadA) != isnan(_last.loadA)) ||
-      (!isnan(t.loadA) && fabsf(t.loadA - _last.loadA) > 0.02f)) {
+      (!isnan(t.loadA) && fabsf(t.loadA - _last.loadA) > 0.1f)) {
     _tft->fillRect(0, yLoad-2, W, hLoad, ST77XX_BLACK);
     _tft->setTextSize(2);
     _tft->setCursor(4, yLoad);
@@ -490,11 +492,13 @@ void DisplayUI::showStatus(const Telemetry& t){
         _tft->print("Load: ");
       float shownA = fabsf(t.loadA);
       if (shownA > 25.5f) shownA = 25.5f; // cap display at OCP max
+      // Round to nearest tenth for stable display
+      shownA = roundf(shownA * 10.0f) / 10.0f;
         uint16_t valColor = ST77XX_GREEN;            // <15A
         if (shownA >= 20.0f)      valColor = ST77XX_RED;     // >=20A up to 25.5A
         else if (shownA >= 15.0f) valColor = ST77XX_YELLOW;  // 15–<20A
       _tft->setTextColor(valColor, ST77XX_BLACK);
-      _tft->printf("%4.2f A", shownA);
+      _tft->printf("%4.1f A", shownA);
     }
   }
 

@@ -1,15 +1,13 @@
 // File Overview: Implements the GitHub-based OTA update flow by fetching the latest
-// release JSON, downloading the firmware asset, and flashing it with Update.
+// release JSON, downloading the firmware asset, and flashing it via ESP-IDF OTA API.
 #include "Ota.hpp"
 
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <Update.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
-#include <esp_task_wdt.h>
 #include "prefs.hpp"
 
 namespace Ota {
@@ -52,18 +50,9 @@ static bool beginDownload(const char* url, HTTPClient& http, const Callbacks& cb
 bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   if (WiFi.status() != WL_CONNECTED) { status(cb, "Wi-Fi not connected"); return false; }
 
-  // Check partition state - refuse OTA if still pending verification
-  const esp_partition_t* running = esp_ota_get_running_partition();
-  if (running) {
-    esp_ota_img_states_t st;
-    if (esp_ota_get_state_partition(running, &st) == ESP_OK) {
-      if (st == ESP_OTA_IMG_PENDING_VERIFY) {
-        status(cb, "ERROR: Firmware not yet verified");
-        status(cb, "Wait 10 seconds after boot");
-        return false;
-      }
-    }
-  }
+  // Stabilize WiFi before OTA
+  WiFi.setSleep(false);
+  delay(200);
 
   describePartitions(cb);
 
@@ -86,13 +75,20 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     for (JsonObject a : doc["assets"].as<JsonArray>()) {
       const char* name = a["name"] | "";
       const char* url  = a["browser_download_url"] | "";
-      if (name && url && strstr(name, ".bin")) { assetUrl = url; break; }
+      if (name && url && strstr(name, ".bin")) { 
+        assetUrl = url; 
+        char nameBuf[48];
+        snprintf(nameBuf, sizeof(nameBuf), "Found: %.40s", name);
+        status(cb, nameBuf);
+        break; 
+      }
     }
   }
   String fallback;
   if (!assetUrl) {
     fallback = String("https://github.com/") + r + "/releases/latest/download/firmware.bin";
     assetUrl = fallback.c_str();
+    status(cb, "Using fallback URL");
   }
 
   status(cb, "Downloading...");
@@ -116,45 +112,101 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   snprintf(sizeBuf, sizeof(sizeBuf), "Size: %d bytes", contentLen);
   status(cb, sizeBuf);
 
-  if (!Update.begin(contentLen)) {
-    status(cb, "Update.begin fail");
+  // Use ESP-IDF OTA API directly (more reliable than Arduino Update library)
+  const esp_partition_t* update_partition = esp_ota_get_next_update_partition(nullptr);
+  if (!update_partition) {
+    status(cb, "No update partition");
+    http.end();
+    return false;
+  }
+  
+  char partBuf[64];
+  snprintf(partBuf, sizeof(partBuf), "Writing to %s", update_partition->label);
+  status(cb, partBuf);
+
+  esp_ota_handle_t ota_handle;
+  esp_err_t err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &ota_handle);
+  if (err != ESP_OK) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "esp_ota_begin fail: %d", (int)err);
+    status(cb, buf);
     http.end();
     return false;
   }
 
   size_t written = 0; uint8_t buff[2048];
+  bool headerChecked = false;
   while (http.connected() && (remaining > 0 || contentLen == -1)) {
     size_t avail = stream->available();
     if (avail) {
       int toRead = (avail > sizeof(buff)) ? sizeof(buff) : (int)avail;
       int c = stream->readBytes(buff, toRead);
       if (c < 0) break;
-      if (Update.write(buff, c) != (size_t)c) {
-        status(cb, "Write error");
-        Update.abort(); http.end();
+      
+      // Check first bytes - ESP32 firmware starts with 0xE9
+      if (!headerChecked && c > 0) {
+        headerChecked = true;
+        if (buff[0] != 0xE9) {
+          char hdrBuf[64];
+          snprintf(hdrBuf, sizeof(hdrBuf), "Bad header: 0x%02X (want 0xE9)", buff[0]);
+          status(cb, hdrBuf);
+          // Show first few bytes for debug
+          if (c >= 4) {
+            char dbg[32];
+            snprintf(dbg, sizeof(dbg), "First: %02X %02X %02X %02X", buff[0], buff[1], buff[2], buff[3]);
+            status(cb, dbg);
+          }
+          esp_ota_abort(ota_handle);
+          http.end();
+          return false;
+        }
+      }
+      if (c < 0) break;
+      
+      err = esp_ota_write(ota_handle, buff, c);
+      if (err != ESP_OK) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "esp_ota_write fail: %d", (int)err);
+        status(cb, buf);
+        esp_ota_abort(ota_handle);
+        http.end();
         return false;
       }
+      
       written += c;
       if (contentLen > 0) remaining -= c;
       progress(cb, written, contentLen > 0 ? (size_t)contentLen : 0);
     } else {
-      yield(); // Let ESP32 handle background tasks
+      yield();
       delay(1);
     }
   }
   http.end();
 
-  // Verify we wrote the expected amount
+  // Verify size
   if (contentLen > 0 && written != (size_t)contentLen) {
     char buf[64];
     snprintf(buf, sizeof(buf), "Size mismatch: got %u, expected %d", (unsigned)written, contentLen);
     status(cb, buf);
-    Update.abort();
+    esp_ota_abort(ota_handle);
     return false;
   }
 
-  if (!Update.end(true)) {
-    status(cb, "Update.end fail");
+  status(cb, "Finalizing...");
+  
+  err = esp_ota_end(ota_handle);
+  if (err != ESP_OK) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "esp_ota_end fail: %d", (int)err);
+    status(cb, buf);
+    return false;
+  }
+
+  err = esp_ota_set_boot_partition(update_partition);
+  if (err != ESP_OK) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "set_boot_partition fail: %d", (int)err);
+    status(cb, buf);
     return false;
   }
 
