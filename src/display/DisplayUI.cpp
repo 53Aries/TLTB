@@ -1003,7 +1003,7 @@ void DisplayUI::adjustLvCutoff(){
   float v=_prefs->getFloat(_kLvCut, 17.0f);
   _tft->fillScreen(ST77XX_BLACK); _tft->setCursor(6,10); _tft->println("Set LVP Cutoff (V)");
   while(true){
-    int8_t d=readStep(); if(d){ v+=d*0.1f; if(v<12)v=12; if(v>20)v=20;
+    int8_t d=readStep(); if(d){ v+=d*0.1f; if(v<9)v=9; if(v>20)v=20;
       _tft->fillRect(6,28,148,12,ST77XX_BLACK); _tft->setCursor(6,28); _tft->printf("%4.1f V", v);
     }
     if(okPressed()){ saveLvCut(v); if(_lvChanged) _lvChanged(v); break; }
@@ -1095,7 +1095,7 @@ bool DisplayUI::protectionAlarm(const char* title, const char* line1, const char
 
   _tft->fillRect(0, 108, 160, 20, ST77XX_BLACK);
   _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-  _tft->setCursor(6, 112); _tft->print("OK=Clear latch");
+  _tft->setCursor(6, 112); _tft->print("OK=Dismiss");
 
   while (true) {
     if (okPressed())   { g_forceHomeFull = true; return true; }

@@ -52,8 +52,8 @@ private:
   float _ocp = 22.0f;   // amps
   float _outvCut = 10.0f; // output voltage cutoff (user configurable)
 
-  // LVP bounds (UI allows 12..20V; enforce slightly wider safety if needed)
-  static constexpr float LVP_MIN_V = 12.0f;
+  // LVP bounds (UI allows 9..20V; enforce slightly wider safety if needed)
+  static constexpr float LVP_MIN_V = 9.0f;
   static constexpr float LVP_MAX_V = 20.0f;
 
   // Limits for configuration

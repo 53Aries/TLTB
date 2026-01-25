@@ -114,6 +114,12 @@ static void enforceRotaryMode(RotaryMode m) {
     return;
   }
 
+  // Protection fault override: if any fault is latched, keep all relays OFF regardless of rotary position
+  if (protector.isLvpLatched() || protector.isOcpLatched() || protector.isOutvLatched()) {
+    for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+    return;
+  }
+
   // Normal operation: In all non-RF modes, we *force* the relay states each loop.
   // This guarantees RF is effectively ignored unless in MODE_RF_ENABLE.
   auto allOff = [](){
@@ -640,12 +646,41 @@ void loop() {
     if (outvLatched) {
       outvHealthySince = 0;
       if (!outvAcked) {
-  (void)ui->protectionAlarm("OUTV LOW", "Output voltage low.", "Fault or low battery.");
-        // Allow user to attempt resume: clear OUTV latch on acknowledge (hard bounds still enforced in Protector)
+        // Show a blocking modal that requires OFF position to clear
+        if (tft) {
+          tft->fillScreen(ST77XX_RED);
+          tft->setTextColor(ST77XX_WHITE, ST77XX_RED);
+          tft->setTextSize(2);
+          tft->setCursor(6, 6);  tft->print("Output V");
+          tft->setTextSize(1);
+          tft->setCursor(6, 34); tft->print("Output voltage fault.");
+          tft->setCursor(6, 46); tft->print("Check system voltage.");
+          // Footer instruction
+          tft->fillRect(0, 108, 160, 20, ST77XX_BLACK);
+          tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+          tft->setCursor(6, 112); tft->print("Rotate to OFF to restart");
+        }
+        // Block until OFF is detected (debounced); keep relays off
+        {
+          uint32_t offStableStart = 0;
+          while (true) {
+            RotaryMode m = readRotary();
+            for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+            if (m == MODE_ALL_OFF) {
+              if (offStableStart == 0) offStableStart = millis();
+              // Require OFF to be held stable for at least 300ms
+              if (millis() - offStableStart >= 300) break;
+            } else {
+              offStableStart = 0; // reset stability if moved away
+            }
+            delay(10);
+          }
+        }
+        // OFF detected: clear OUTV latch; allow resume
         protector.clearOutvLatch();
         tele.outvLatched = false;
-        outvAcked = true;
-        // Ensure home fully repaints after leaving OUTV modal
+        outvAcked = true;  // suppress further pop-ups until fault truly resolves
+        // Ensure the Home screen fully repaints after leaving blocking modal
         ui->requestFullHomeRepaint();
         ui->showStatus(tele);
       }
@@ -658,7 +693,7 @@ void loop() {
     }
   }
 
-  // LVP modal (single-shot; do NOT clear the latch on acknowledge so the home screen shows ACTIVE)
+  // LVP modal (single-shot per continuous fault; re-armed after healthy period)
   static bool     lvpAcked = false;
   static uint32_t lvpHealthySince = 0;
   {
@@ -666,10 +701,41 @@ void loop() {
     if (lvpLatched) {
       lvpHealthySince = 0;
       if (!lvpAcked) {
-        (void)ui->protectionAlarm("LVP TRIPPED", "Input battery voltage low.", "System disabled. Charge battery.");
-        // Keep LVP latched so relays remain blocked and status shows ACTIVE
-        lvpAcked = true;
-        // Ensure home fully repaints after leaving LVP modal
+        // Show a blocking modal that requires OFF position to clear
+        if (tft) {
+          tft->fillScreen(ST77XX_RED);
+          tft->setTextColor(ST77XX_WHITE, ST77XX_RED);
+          tft->setTextSize(2);
+          tft->setCursor(6, 6);  tft->print("LVP Tripped");
+          tft->setTextSize(1);
+          tft->setCursor(6, 34); tft->print("Battery voltage low.");
+          tft->setCursor(6, 46); tft->print("Charge battery.");
+          // Footer instruction
+          tft->fillRect(0, 108, 160, 20, ST77XX_BLACK);
+          tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+          tft->setCursor(6, 112); tft->print("Rotate to OFF to restart");
+        }
+        // Block until OFF is detected (debounced); keep relays off
+        {
+          uint32_t offStableStart = 0;
+          while (true) {
+            RotaryMode m = readRotary();
+            for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+            if (m == MODE_ALL_OFF) {
+              if (offStableStart == 0) offStableStart = millis();
+              // Require OFF to be held stable for at least 300ms
+              if (millis() - offStableStart >= 300) break;
+            } else {
+              offStableStart = 0; // reset stability if moved away
+            }
+            delay(10);
+          }
+        }
+        // OFF detected: clear LVP latch; allow resume
+        protector.clearLvpLatch();
+        tele.lvpLatched = false;
+        lvpAcked = true;  // suppress further pop-ups until fault truly resolves
+        // Ensure the Home screen fully repaints after leaving blocking modal
         ui->requestFullHomeRepaint();
         ui->showStatus(tele);
       }
