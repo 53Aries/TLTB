@@ -15,6 +15,59 @@ namespace Ota {
 static void status(const Callbacks& cb, const char* s){ if (cb.onStatus) cb.onStatus(s); }
 static void progress(const Callbacks& cb, size_t w, size_t t){ if (cb.onProgress) cb.onProgress(w,t); }
 
+static bool checkAndRepairOtadata(const Callbacks& cb){
+  // Validate otadata partition health by checking boot partition state
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  if (!running) {
+    status(cb, "Cannot detect running partition");
+    return false;
+  }
+  
+  // Try to read the otadata partition state
+  esp_ota_img_states_t ota_state;
+  esp_err_t err = esp_ota_get_state_partition(running, &ota_state);
+  
+  if (err == ESP_ERR_NOT_FOUND || err == ESP_ERR_NOT_SUPPORTED) {
+    // Otadata partition not found or corrupted - needs repair
+    status(cb, "Otadata corrupt, repairing...");
+    
+    // Find the otadata partition
+    const esp_partition_t* otadata = esp_partition_find_first(
+      ESP_PARTITION_TYPE_DATA, 
+      ESP_PARTITION_SUBTYPE_DATA_OTA, 
+      NULL
+    );
+    
+    if (!otadata) {
+      status(cb, "Otadata partition missing");
+      return false;
+    }
+    
+    // Erase the otadata partition to reset it
+    err = esp_partition_erase_range(otadata, 0, otadata->size);
+    if (err != ESP_OK) {
+      char buf[48];
+      snprintf(buf, sizeof(buf), "Erase otadata fail: %d", (int)err);
+      status(cb, buf);
+      return false;
+    }
+    
+    // Re-initialize by setting current partition as boot partition
+    err = esp_ota_set_boot_partition(running);
+    if (err != ESP_OK) {
+      char buf[48];
+      snprintf(buf, sizeof(buf), "Reinit otadata fail: %d", (int)err);
+      status(cb, buf);
+      return false;
+    }
+    
+    status(cb, "Otadata repaired");
+    delay(500);
+  }
+  
+  return true;
+}
+
 static void describePartitions(const Callbacks& cb){
   const esp_partition_t* running = esp_ota_get_running_partition();
   const esp_partition_t* next    = esp_ota_get_next_update_partition(nullptr);
@@ -53,6 +106,12 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   // Stabilize WiFi before OTA
   WiFi.setSleep(false);
   delay(200);
+
+  // Check and repair otadata partition if corrupted (prevents error 5379)
+  if (!checkAndRepairOtadata(cb)) {
+    status(cb, "Otadata check failed");
+    return false;
+  }
 
   describePartitions(cb);
 
