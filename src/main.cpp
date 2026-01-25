@@ -7,6 +7,7 @@
 // ESP-IDF C headers already provide their own extern "C" guards; direct includes keep this cleaner.
 #include "esp_task_wdt.h"
 #include "esp_ota_ops.h"
+#include "soc/rtc_cntl_reg.h"  // For brownout detector control
 
 #include <WiFi.h>
 
@@ -196,6 +197,10 @@ static uint32_t computeFaultMask(){
 // ---------------- setup/loop ----------------
 void setup() {
   esp_task_wdt_deinit();
+  
+  // Enable brownout detector to prevent running with unstable voltage
+  // This prevents flash corruption during cold boots with slow voltage ramp
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 1);
 
   // TFT & encoder/buttons pins
   // Keep backlight OFF until panel is fully initialized to avoid white-screen on cold power
@@ -203,8 +208,12 @@ void setup() {
   pinMode(PIN_TFT_CS, OUTPUT);  digitalWrite(PIN_TFT_CS, HIGH);
   pinMode(PIN_TFT_DC, OUTPUT);
   pinMode(PIN_TFT_RST, OUTPUT);
-  // Allow power rails to settle on cold battery connect
-  delay(60);
+  
+  // CRITICAL: Allow power rails to settle on cold battery connect
+  // After hours unpowered, capacitors are fully discharged
+  // Flash memory needs stable voltage before any read/write operations
+  // 200ms gives adequate time for voltage regulators to stabilize
+  delay(200);
 
   // Check if this app is booting in pending-verify state (OTA rollback flow)
   // NOTE: Rollback validation disabled - using simple OTA without state tracking
