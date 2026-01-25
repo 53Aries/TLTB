@@ -72,6 +72,9 @@ public:
   void   toggleMode();
   // Force next Home draw to be a full-screen repaint (after blocking modals)
   void   requestFullHomeRepaint();
+  
+  // Auto-detect battery type and set LVP at startup
+  void   detectAndSetBatteryType();
 
 private:
   // draws

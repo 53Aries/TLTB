@@ -403,7 +403,7 @@ void setup() {
   if (!g_devBoot) {
     protector.begin(&prefs);
     ui->setFaultMask(computeFaultMask());
-    ui->showStatus(tele);
+    // Don't show home screen yet - let battery detection run first with splash visible
     
     // Critical check: INA sensors must be present for system to operate
     if (!INA226::PRESENT || !INA226_SRC::PRESENT) {
@@ -434,6 +434,14 @@ void setup() {
     
     // Boot-time off-current safety check: wait 1s for system to stabilize, then verify no unexpected load
     delay(1000);
+    
+    // Auto-detect battery type and set LVP (wait additional 2s for voltage to stabilize)
+    delay(2000);
+    ui->detectAndSetBatteryType();
+    
+    // Now show home screen after detection completes
+    ui->showStatus(tele);
+    
     // Read current after stabilization
     float bootCurrent = INA226::PRESENT ? INA226::readCurrentA() : 0.0f;
     if (!isnan(bootCurrent) && bootCurrent > 2.0f) {

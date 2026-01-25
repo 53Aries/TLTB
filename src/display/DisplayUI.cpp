@@ -207,7 +207,7 @@ void DisplayUI::begin(Preferences& p){
   // Load persisted UI mode (default HD)
   _mode = _prefs->getUChar(KEY_UI_MODE, 0);
 
-  // Splash
+  // Splash (leave visible during boot - will be cleared by first screen draw)
   _tft->fillScreen(ST77XX_BLACK);
   _tft->setTextColor(ST77XX_CYAN, ST77XX_BLACK);
   _tft->setTextSize(1);
@@ -215,7 +215,7 @@ void DisplayUI::begin(Preferences& p){
   _tft->setTextSize(2);
   _tft->setCursor(26, 58); _tft->print("TLTB");
   delay(900);
-  _tft->fillScreen(ST77XX_BLACK);
+  // Keep splash visible - don't clear here
 }
 
 void DisplayUI::setEncoderReaders(std::function<int8_t()> s, std::function<bool()> ok, std::function<bool()> back){
@@ -607,6 +607,112 @@ void DisplayUI::drawHome(bool force){
 void DisplayUI::requestFullHomeRepaint(){
   g_forceHomeFull = true;
   _needRedraw = true;
+}
+
+// Auto-detect battery type at startup and set LVP accordingly
+void DisplayUI::detectAndSetBatteryType(){
+  if (!_tft || !_readSrcV || !_lvChanged) return;
+  
+  // Read current battery voltage
+  float srcV = _readSrcV();
+  
+  // Determine battery type and appropriate LVP setting
+  float lvpSetting = 0.0f;
+  String batteryType = "";
+  String message = "";
+  bool detected = false;
+  
+  if (isnan(srcV)) {
+    // Sensor failed - already handled by fault system, skip auto-detect
+    return;
+  }
+  
+  if (srcV >= 11.0f && srcV <= 14.0f) {
+    // 12V battery detected (nominal range)
+    batteryType = "12V";
+    lvpSetting = 10.5f;
+    detected = true;
+  } else if (srcV >= 17.0f && srcV <= 22.0f) {
+    // 18V battery detected (nominal range)
+    batteryType = "18V";
+    lvpSetting = 16.5f;
+    detected = true;
+  } else if (srcV > 22.0f) {
+    // Higher voltage - assume 18V system with high charge
+    batteryType = "18V";
+    lvpSetting = 16.5f;
+    detected = true;
+  } else if (srcV >= 9.0f && srcV < 11.0f) {
+    // Low voltage, likely 12V battery that's discharged
+    batteryType = "12V (Low)";
+    lvpSetting = 10.5f;
+    detected = true;
+  } else if (srcV >= 14.0f && srcV < 17.0f) {
+    // Voltage in undefined range
+    detected = false;
+  } else {
+    // Very low voltage or other edge case
+    detected = false;
+  }
+  
+  // Display modal with result
+  _tft->fillScreen(ST77XX_BLACK);
+  _tft->setTextSize(1);
+  
+  if (detected) {
+    // Successfully detected - apply setting and show confirmation
+    _lvChanged(lvpSetting);
+    if (_prefs) {
+      _prefs->putFloat(_kLvCut, lvpSetting);
+    }
+    
+    // Show detection result
+    _tft->setTextColor(ST77XX_GREEN, ST77XX_BLACK);
+    _tft->setCursor(10, 20);
+    _tft->print(batteryType);
+    _tft->print(" battery detected");
+    
+    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    _tft->setCursor(10, 40);
+    _tft->print("Battery: ");
+    _tft->printf("%.1fV", srcV);
+    
+    _tft->setCursor(10, 60);
+    _tft->print("Low battery protection");
+    _tft->setCursor(10, 72);
+    _tft->print("set for ");
+    _tft->printf("%.1fV", lvpSetting);
+    
+  } else {
+    // Could not detect - show error
+    _tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+    _tft->setCursor(10, 20);
+    _tft->print("Unable to detect");
+    _tft->setCursor(10, 32);
+    _tft->print("battery type");
+    
+    _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    _tft->setCursor(10, 52);
+    _tft->print("Battery: ");
+    _tft->printf("%.1fV", srcV);
+    
+    _tft->setCursor(10, 72);
+    _tft->print("Manually set LVP Cutoff.");
+    _tft->setCursor(10, 84);
+    _tft->print("See manual.");
+  }
+  
+  // Footer
+  _tft->setTextColor(ST77XX_CYAN, ST77XX_BLACK);
+  _tft->setCursor(10, 110);
+  _tft->print("Auto-clearing in 6s...");
+  
+  // Hold modal for 6 seconds
+  delay(6000);
+  
+  // Clear screen and force full home repaint
+  _tft->fillScreen(ST77XX_BLACK);
+  requestFullHomeRepaint();
 }
 
 // New: scrolling menu (no header). Shows 8 rows and scrolls as needed.
