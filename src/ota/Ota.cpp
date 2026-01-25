@@ -16,7 +16,7 @@ static void status(const Callbacks& cb, const char* s){ if (cb.onStatus) cb.onSt
 static void progress(const Callbacks& cb, size_t w, size_t t){ if (cb.onProgress) cb.onProgress(w,t); }
 
 static bool checkAndRepairOtadata(const Callbacks& cb){
-  // Refresh otadata before OTA to prevent corruption (error 5379)
+  // Check otadata health before OTA to prevent corruption (error 5379)
   status(cb, "Checking otadata...");
   
   const esp_partition_t* running = esp_ota_get_running_partition();
@@ -25,13 +25,31 @@ static bool checkAndRepairOtadata(const Callbacks& cb){
     return false;
   }
   
-  // Try to set current partition as boot partition to ensure otadata is valid
-  // This will initialize blank otadata or refresh existing entries
-  esp_err_t err = esp_ota_set_boot_partition(running);
+  // Check if we can read otadata partition state
+  esp_ota_img_states_t ota_state;
+  esp_err_t err = esp_ota_get_state_partition(running, &ota_state);
   
-  if (err == ESP_ERR_OTA_SELECT_INFO_INVALID) {
-    // Otadata is corrupted - erase and retry
-    status(cb, "Otadata corrupt, erasing...");
+  // If otadata is blank or uninitialized (fresh USB flash), that's OK
+  // The OTA process will initialize it properly
+  if (err == ESP_ERR_NOT_FOUND || err == ESP_ERR_NOT_SUPPORTED) {
+    status(cb, "Otadata uninitialized (OK)");
+    return true;
+  }
+  
+  // If we can read state successfully, try to refresh by setting boot partition
+  // This catches subtle corruption before it causes OTA failure
+  if (err == ESP_OK) {
+    err = esp_ota_set_boot_partition(running);
+    if (err == ESP_OK) {
+      status(cb, "Otadata OK");
+      return true;
+    }
+  }
+  
+  // At this point, either get_state failed with corruption error,
+  // or set_boot_partition failed - try to repair
+  if (err == ESP_ERR_OTA_SELECT_INFO_INVALID || err == ESP_ERR_INVALID_ARG) {
+    status(cb, "Otadata corrupt, repairing...");
     
     const esp_partition_t* otadata = esp_partition_find_first(
       ESP_PARTITION_TYPE_DATA, 
@@ -44,7 +62,7 @@ static bool checkAndRepairOtadata(const Callbacks& cb){
       return false;
     }
     
-    // Erase the otadata partition completely
+    // Erase the corrupted otadata partition
     err = esp_partition_erase_range(otadata, 0, otadata->size);
     if (err != ESP_OK) {
       char buf[48];
@@ -53,25 +71,16 @@ static bool checkAndRepairOtadata(const Callbacks& cb){
       return false;
     }
     
-    // Retry setting boot partition after erase
-    err = esp_ota_set_boot_partition(running);
-    if (err != ESP_OK) {
-      char buf[48];
-      snprintf(buf, sizeof(buf), "Reinit fail: %d", (int)err);
-      status(cb, buf);
-      return false;
-    }
-    
-    status(cb, "Otadata repaired");
-  } else if (err != ESP_OK) {
-    // Unexpected error
-    char buf[64];
-    snprintf(buf, sizeof(buf), "Otadata error: %d (0x%X)", (int)err, (int)err);
-    status(cb, buf);
-    return false;
-  } else {
-    status(cb, "Otadata OK");
+    status(cb, "Otadata erased, OTA will reinit");
+    // Don't try to reinitialize - let the OTA process do it
+    return true;
   }
+  
+  // Some other unexpected error - log it but allow OTA to proceed
+  char buf[64];
+  snprintf(buf, sizeof(buf), "Otadata warn: %d (0x%X)", (int)err, (int)err);
+  status(cb, buf);
+  status(cb, "Proceeding anyway...");
   
   delay(100);
   return true;
