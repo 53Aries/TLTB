@@ -16,9 +16,8 @@ static void status(const Callbacks& cb, const char* s){ if (cb.onStatus) cb.onSt
 static void progress(const Callbacks& cb, size_t w, size_t t){ if (cb.onProgress) cb.onProgress(w,t); }
 
 static bool checkAndRepairOtadata(const Callbacks& cb){
-  // Always refresh otadata before OTA to prevent corruption (error 5379)
-  // This preemptively clears any accumulated wear or partial corruption
-  status(cb, "Refreshing otadata...");
+  // Refresh otadata before OTA to prevent corruption (error 5379)
+  status(cb, "Checking otadata...");
   
   const esp_partition_t* running = esp_ota_get_running_partition();
   if (!running) {
@@ -26,40 +25,55 @@ static bool checkAndRepairOtadata(const Callbacks& cb){
     return false;
   }
   
-  // Find the otadata partition
-  const esp_partition_t* otadata = esp_partition_find_first(
-    ESP_PARTITION_TYPE_DATA, 
-    ESP_PARTITION_SUBTYPE_DATA_OTA, 
-    NULL
-  );
+  // Try to set current partition as boot partition to ensure otadata is valid
+  // This will initialize blank otadata or refresh existing entries
+  esp_err_t err = esp_ota_set_boot_partition(running);
   
-  if (!otadata) {
-    status(cb, "Otadata partition missing");
-    return false;
-  }
-  
-  // Erase the otadata partition completely
-  esp_err_t err = esp_partition_erase_range(otadata, 0, otadata->size);
-  if (err != ESP_OK) {
-    char buf[48];
-    snprintf(buf, sizeof(buf), "Erase otadata fail: %d", (int)err);
+  if (err == ESP_ERR_OTA_SELECT_INFO_INVALID) {
+    // Otadata is corrupted - erase and retry
+    status(cb, "Otadata corrupt, erasing...");
+    
+    const esp_partition_t* otadata = esp_partition_find_first(
+      ESP_PARTITION_TYPE_DATA, 
+      ESP_PARTITION_SUBTYPE_DATA_OTA, 
+      NULL
+    );
+    
+    if (!otadata) {
+      status(cb, "Otadata partition missing");
+      return false;
+    }
+    
+    // Erase the otadata partition completely
+    err = esp_partition_erase_range(otadata, 0, otadata->size);
+    if (err != ESP_OK) {
+      char buf[48];
+      snprintf(buf, sizeof(buf), "Erase fail: %d", (int)err);
+      status(cb, buf);
+      return false;
+    }
+    
+    // Retry setting boot partition after erase
+    err = esp_ota_set_boot_partition(running);
+    if (err != ESP_OK) {
+      char buf[48];
+      snprintf(buf, sizeof(buf), "Reinit fail: %d", (int)err);
+      status(cb, buf);
+      return false;
+    }
+    
+    status(cb, "Otadata repaired");
+  } else if (err != ESP_OK) {
+    // Unexpected error
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Otadata error: %d (0x%X)", (int)err, (int)err);
     status(cb, buf);
     return false;
+  } else {
+    status(cb, "Otadata OK");
   }
   
-  // Re-initialize by setting current partition as boot partition
-  // This creates fresh otadata entries
-  err = esp_ota_set_boot_partition(running);
-  if (err != ESP_OK) {
-    char buf[48];
-    snprintf(buf, sizeof(buf), "Reinit otadata fail: %d", (int)err);
-    status(cb, buf);
-    return false;
-  }
-  
-  status(cb, "Otadata refreshed");
   delay(100);
-  
   return true;
 }
 
