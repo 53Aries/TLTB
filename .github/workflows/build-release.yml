@@ -3,8 +3,13 @@ name: Build and Release Firmware
 on:
   push:
     tags:
-      - 'v*.*.*'  # Triggers on version tags like v1.0.0
+      - 'v*'  # Triggers on any version tag starting with v
   workflow_dispatch:  # Allows manual triggering
+    inputs:
+      tag:
+        description: 'Tag name for release (e.g., v1.1)'
+        required: true
+        type: string
 
 jobs:
   build:
@@ -13,6 +18,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.tag || github.ref }}
     
     - name: Cache PlatformIO
       uses: actions/cache@v3
@@ -35,28 +42,37 @@ jobs:
     - name: Build firmware
       run: pio run --environment esp32s3-devkitc1
     
+    - name: Set version tag
+      id: set_tag
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+        else
+          echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+        fi
+    
     - name: Rename firmware file
       run: |
         mkdir -p release
-        cp .pio/build/esp32s3-devkitc1/firmware.bin release/TLTB-firmware-${{ github.ref_name }}.bin
+        cp .pio/build/esp32s3-devkitc1/firmware.bin release/TLTB-firmware-${{ steps.set_tag.outputs.tag }}.bin
     
     - name: Create Release
       uses: softprops/action-gh-release@v1
-      if: startsWith(github.ref, 'refs/tags/')
       with:
+        tag_name: ${{ steps.set_tag.outputs.tag }}
         files: |
           release/*.bin
         body: |
-          ## Firmware Release ${{ github.ref_name }}
+          ## Firmware Release ${{ steps.set_tag.outputs.tag }}
           
           ### OTA Installation
-          1. Download TLTB-firmware-${{ github.ref_name }}.bin
+          1. Download TLTB-firmware-${{ steps.set_tag.outputs.tag }}.bin
           2. Use the device's built-in OTA update feature
           3. Or upload via web interface
           
           ### Manual Flash (if needed)
           ```
-          esptool.py --chip esp32s3 --port COM_PORT write_flash 0x10000 TLTB-firmware-${{ github.ref_name }}.bin
+          esptool.py --chip esp32s3 --port COM_PORT write_flash 0x10000 TLTB-firmware-${{ steps.set_tag.outputs.tag }}.bin
           ```
           
           ### Changes
