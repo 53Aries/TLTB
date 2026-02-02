@@ -165,7 +165,7 @@ static void enforceRotaryMode(RotaryMode m) {
     case MODE_AUX:
       allOff();
       if (getUiMode() == 1) { // RV
-        relayOn(R_BRAKE);
+        relayOn(R_AUX);
       } else {
         relayOn(R_AUX);
       }

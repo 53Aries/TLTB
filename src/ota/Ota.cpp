@@ -83,15 +83,16 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
 
   // 3) Download firmware
   status(cb, "Downloading...");
-  WiFi.setTxPower(WIFI_POWER_15dBm);
+  WiFi.setTxPower(WIFI_POWER_19_5dBm); // Max power for reliable download
   
   HTTPClient http2;
-  http2.setTimeout(30000);
-  http2.useHTTP10(true);
+  http2.setTimeout(60000); // 60 second timeout
+  http2.useHTTP10(true);   // HTTP/1.0 for simpler streaming
   http2.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   http2.setRedirectLimit(10);
   http2.addHeader("User-Agent", "TLTB-Updater");
   http2.addHeader("Accept", "application/octet-stream");
+  http2.addHeader("Connection", "keep-alive");
   
   if (!http2.begin(assetUrl)) { 
     status(cb, "Download URL error"); 
@@ -132,10 +133,13 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   
   size_t written = 0;
   uint8_t buff[1024];
+  unsigned long lastDataTime = millis();
+  const unsigned long DATA_TIMEOUT = 15000; // 15 second timeout for stalled downloads
   
   while (written < (size_t)contentLen) {
     size_t avail = stream->available();
     if (avail) {
+      lastDataTime = millis(); // Reset timeout on data received
       int toRead = (avail > sizeof(buff)) ? sizeof(buff) : (int)avail;
       int c = stream->readBytes(buff, toRead);
       if (c <= 0) break;
@@ -153,12 +157,24 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
       written += c;
       progress(cb, written, contentLen);
     } else {
-      delay(1);
+      delay(10); // Longer delay when no data
+      
+      // Check for stalled download
+      if (millis() - lastDataTime > DATA_TIMEOUT) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "Timeout at %u/%d", (unsigned)written, contentLen);
+        status(cb, buf);
+        Update.abort();
+        http2.end();
+        return false;
+      }
     }
     
-    // Timeout check
-    if (!http2.connected() && written < (size_t)contentLen) {
-      status(cb, "Connection lost");
+    // Connection lost check
+    if (!http2.connected() && !stream->available() && written < (size_t)contentLen) {
+      char buf[48];
+      snprintf(buf, sizeof(buf), "Lost at %u/%d", (unsigned)written, contentLen);
+      status(cb, buf);
       Update.abort();
       http2.end();
       return false;
