@@ -15,9 +15,9 @@
 
 namespace {
   // Tunables
-  constexpr uint32_t RF_COOLDOWN_MS        = 600;  // suppress repeats after a trigger
-  constexpr uint32_t BURST_GAP_MS          = 100;  // gap indicating end of a button-burst
-  constexpr uint32_t MAX_BURST_MS          = 240;  // finalize even if still noisy after this window
+  constexpr uint32_t RF_COOLDOWN_MS        = 1000; // suppress repeats after a trigger (1s debounce)
+  constexpr uint32_t BURST_GAP_MS          = 250;  // gap indicating end of a button-burst
+  constexpr uint32_t MAX_BURST_MS          = 500;  // finalize even if still noisy after this window
 
   // rc-switch handles capture internally, no local ISR buffers needed
 
