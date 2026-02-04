@@ -106,7 +106,10 @@ void TltbBleService::begin(const char* deviceName, const BleCallbacks& callbacks
 
   _callbacks = callbacks;
   NimBLEDevice::init(deviceName && deviceName[0] ? deviceName : "TLTB Controller");
-  NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+  // Max power on every BLE role; battery draw is not a constraint for this product.
+  NimBLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_DEFAULT);
+  NimBLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_ADV);
+  NimBLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_SCAN);
   NimBLEDevice::setSecurityAuth(false, false, false);
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
 
@@ -138,6 +141,10 @@ void TltbBleService::begin(const char* deviceName, const BleCallbacks& callbacks
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
   advertising->addServiceUUID(kServiceUuid);
   advertising->setScanResponse(true);
+  advertising->setMinInterval(0x0020);  // 20 ms = aggressive discovery window
+  advertising->setMaxInterval(0x0040);  // 40 ms ceiling keeps airtime high for range
+  advertising->setMinPreferred(0x0006); // Request 7.5 ms conn interval for chatty link
+  advertising->setMaxPreferred(0x0012); // Cap at 15 ms to stay responsive
   advertising->start();
 
   _initialized = true;
