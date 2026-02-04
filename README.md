@@ -1,16 +1,16 @@
 # TLTB Mobile App
 
-Cross-platform (Android + iOS) companion app for the TLTB platform. The app pairs to the ESP32 controller over Bluetooth LE, exposes six relay controls, and mirrors the home-screen telemetry (active function, current draw, etc.).
+Cross-platform (Android + iOS) companion app for the TLTB platform. The app pairs to the ESP32 controller over Bluetooth LE, exposes six relay controls, and mirrors the home-screen telemetry (active function, current draw, etc.). The firmware already exposes the matching BLE profile, so you can toggle a single env flag to talk to hardware.
 
 ## Getting started
 
 ```bash
 cd "TLTB App"
 npm install
-npm run start            # launches Expo Dev Tools
+npm run start            # launches Expo Dev Tools (respects env vars)
 npm run android          # open Expo Go on Android
 npm run ios              # requires macOS / iOS simulator
-npm run web
+npm run web              # mock transport only
 npm run typecheck        # TypeScript only
 ```
 
@@ -19,7 +19,7 @@ npm run typecheck        # TypeScript only
 - `App.tsx` – entry that mounts the provider tree.
 - `src/AppProviders.tsx` – wraps navigation, safe areas, and BLE lifecycle hooks.
 - `src/state/deviceStore.ts` – central Zustand store for connection, relays, and the home-status snapshot (mode, load, voltages, cooldown, faults).
-- `src/services/ble/mockBleSession.ts` – mock transport that simulates the ESP32 until real firmware is ready.
+- `src/services/ble/mockBleSession.ts` – mock transport that simulates the ESP32 (default when the BLE env flag is left on).
 - `src/services/ble/tltbBleSession.ts` – real BLE client built on `react-native-ble-plx` (scan, connect, subscribe, command write).
 - `src/hooks/useBleTransport.ts` – routes between mock and real BLE based on environment flags.
 - `src/config/appConfig.ts` & `src/config/bleProfile.ts` – runtime feature flags and the expected service/characteristic UUIDs.
@@ -29,13 +29,14 @@ npm run typecheck        # TypeScript only
 - `src/components/*` – relay grid, status banner, and supporting primitives.
 - `src/screens/HomeScreen.tsx` – main dashboard surfaced today.
 
-## BLE integration plan
+## Current BLE integration
 
-1. **Document the controller profile** – service UUIDs, read/write characteristics, notification rate, and security mode. Update `src/config/bleProfile.ts` with the final IDs; the notification payload should include: mode, load amps, src/out volts, bypass flags, relay states, cooldown, startup guard, and fault bitmask/message strings.
-2. **Firmware payload contract** – the app expects the status characteristic to emit base64-encoded JSON matching `HomeStatusSnapshot` plus an optional `relays` map. Keep property names stable to avoid parsing failures (see `src/services/ble/statusParser.ts`).
-3. **Persist device metadata** – store the last connected device ID and auto-reconnect on launch; fall back to a guided scan if the device is unavailable.
-4. **Command reliability** – keep optimistic UI but listen for firmware acknowledgments; rollback a relay tile if an ACK is missed or rejected.
-5. **Security** – require numeric comparison or a pre-shared PIN during pairing, and encrypt command payloads if the firmware exposes a custom scheme.
+- **Profile** – `src/config/bleProfile.ts` contains the production UUIDs (`0000a11c-*` service plus status/control characteristics). Scans filter by the configured service UUID and the `TLTB` name prefix.
+- **Payload contract** – firmware emits Base64 JSON matching `HomeStatusSnapshot` plus a `relays` map; parsing lives in `src/services/ble/statusParser.ts` and feeds the Zustand store.
+- **Transport selection** – `useBleTransport` chooses the real client when `EXPO_PUBLIC_USE_MOCK_BLE=false`; restart Metro after toggling so Expo picks up the flag.
+- **Device memory** – AsyncStorage + `useKnownDeviceBootstrap` persist the last controller (id/name/RSSI) and hydrate the store pre-scan for faster reconnects.
+- **Command flow** – relay taps optimistically flip UI state while writing `{ type: 'relay', relayId, state }` to the control characteristic; failures roll the tile back.
+- **Security/TX power** – the firmware currently allows unauthenticated, no-IO pairing and runs at `ESP_PWR_LVL_P9`; when that policy evolves we’ll mirror requirements here.
 
 ## Maximizing BLE range
 
@@ -46,7 +47,7 @@ npm run typecheck        # TypeScript only
 
 ## Next steps
 
-1. Fill in the final UUIDs + payload schema, then flip `EXPO_PUBLIC_USE_MOCK_BLE=false` to exercise the real transport.
+1. Harden the command ACK path (or add firmware-level confirms) so the UI can surface failures explicitly.
 2. Mirror the firmware schema (relay names, telemetry fields) via a shared JSON file or codegen step so breaking changes are obvious.
 3. Add integration tests (Detox or Maestro) that tap each relay tile and verify the correct GATT writes are issued.
 4. Prepare release builds via Expo EAS once BLE is stable.
