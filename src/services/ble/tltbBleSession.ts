@@ -24,7 +24,7 @@ interface SessionOptions {
   onSignalUpdate?: (rssi: number | null) => void;
 }
 
-const RSSI_INTERVAL_MS = 4000;
+const RSSI_INTERVAL_MS = 2000;
 
 export const createTltbBleSession = (
   handlers: BleSessionHandlers,

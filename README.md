@@ -40,10 +40,10 @@ npm run typecheck        # TypeScript only
 
 ## Maximizing BLE range
 
-- Use BLE 5 coded PHY (S2/S8) on the ESP32 when available, otherwise 2M PHY with the highest legal TX power.
-- Lengthen the advertising interval only after the link is stable; start aggressive (e.g., 100–200 ms) to make discovery snappy, then relax for battery savings.
-- Expose an external antenna or tuned PCB trace on the hardware, and keep the mobile app polling at modest frequency (2–4 Hz) so airtime stays low.
-- Allow the app to show RSSI and prompt the user to get closer when commands fail.
+- The firmware now locks ESP32 TX power to `ESP_PWR_LVL_P9` for default/scan/adv roles and advertises every 20–40 ms; keep this aggressive profile unless a regulatory test requires lowering it.
+- Connection parameter requests target 7.5–15 ms intervals so notifications and command retries stay extremely chatty—battery draw is not a constraint.
+- Expose an external antenna or tuned PCB trace on the hardware to take advantage of the extra airtime.
+- The app samples RSSI every 2 seconds and auto-reconnects after 1.5 seconds to keep the link sticky and give users immediate feedback when signal drops.
 
 ## Next steps
 
