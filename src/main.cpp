@@ -20,6 +20,7 @@
 #include "relays.hpp"
 #include <Preferences.h>
 #include "power/Protector.hpp"
+#include "ble/TltbBleService.hpp"
 
 // ---------------- Globals ----------------
 static Adafruit_ST7735* tft = nullptr;   // shared SPI
@@ -28,6 +29,8 @@ Preferences prefs;
 static Telemetry tele{};
 static bool g_devBoot = false;   // Developer-boot mode flag
 static bool g_startupGuard = false; // Prevents relay activation until 1p8t is cycled to OFF
+static TltbBleService g_bleService;
+static uint32_t g_faultMask = 0;
 
 // Cooldown timer state (20.5A usage limit)
 static uint32_t g_highCurrentStartMs = 0; // When >20.5A current started (0=not active)
@@ -192,6 +195,50 @@ static uint32_t computeFaultMask(){
 
   if (!RF::isPresent())     m |= FLT_RF_MISSING;
   return m;
+}
+
+static bool bleCanDriveRelays() {
+  if (g_devBoot) return false;
+  if (g_startupGuard) return false;
+  if (g_stableRotaryMode != MODE_RF_ENABLE) return false;
+  if (protector.isLvpLatched() || protector.isOcpLatched() || protector.isOutvLatched()) return false;
+  return true;
+}
+
+static void handleBleRelayCommand(RelayIndex idx, bool desiredOn) {
+  if (!bleCanDriveRelays()) return;
+  int target = static_cast<int>(idx);
+  if (target < (int)R_LEFT || target >= (int)R_ENABLE) return;
+  if (desiredOn) {
+    relayOn(idx);
+  } else {
+    relayOff(idx);
+  }
+}
+
+static const char* describeActiveLabel(RotaryMode mode) {
+  if (g_startupGuard) {
+    return "SAFE";
+  }
+
+  switch (mode) {
+    case MODE_LEFT:   return "LEFT";
+    case MODE_RIGHT:  return "RIGHT";
+    case MODE_BRAKE:  return "BRAKE";
+    case MODE_TAIL:   return "TAIL";
+    case MODE_MARKER: return (getUiMode() == 1) ? "REV" : "MARK";
+    case MODE_AUX:    return (getUiMode() == 1) ? "Ele Brakes" : "AUX";
+    case MODE_RF_ENABLE: {
+      int8_t rfRelay = RF::getActiveRelay();
+      if (rfRelay >= (int)R_LEFT && rfRelay < (int)R_ENABLE) {
+        return relayName(static_cast<RelayIndex>(rfRelay));
+      }
+      return "RF";
+    }
+    case MODE_ALL_OFF:
+    default:
+      return "OFF";
+  }
 }
 
 // ---------------- setup/loop ----------------
@@ -477,6 +524,15 @@ void setup() {
       }
     }
   }
+
+  BleCallbacks bleCallbacks{};
+  bleCallbacks.onRelayCommand = [](RelayIndex idx, bool desiredOn) {
+    handleBleRelayCommand(idx, desiredOn);
+  };
+  bleCallbacks.onRefreshRequest = []() {
+    g_bleService.requestImmediateStatus();
+  };
+  g_bleService.begin("TLTB Controller", bleCallbacks);
 }
 
 void loop() {
@@ -652,7 +708,8 @@ void loop() {
     }
   }
 
-  ui->setFaultMask(computeFaultMask());
+  g_faultMask = computeFaultMask();
+  ui->setFaultMask(g_faultMask);
   ui->tick(tele);
 
   // OUTV modal (single-shot per continuous fault; re-armed after healthy period)
@@ -790,6 +847,21 @@ void loop() {
     }
   }
   enforceRotaryMode(curMode);
+
+  BleStatusContext bleCtx{};
+  bleCtx.telemetry = tele;
+  bleCtx.faultMask = g_faultMask;
+  bleCtx.startupGuard = g_startupGuard;
+  bleCtx.lvpBypass = protector.lvpBypass();
+  bleCtx.outvBypass = protector.outvBypass();
+  bleCtx.enableRelay = relayIsOn(R_ENABLE);
+  bleCtx.activeLabel = describeActiveLabel(g_stableRotaryMode);
+  bleCtx.timestampMs = millis();
+  bleCtx.uiMode = getUiMode();
+  for (int i = 0; i < (int)R_COUNT; ++i) {
+    bleCtx.relayStates[i] = relayIsOn(static_cast<RelayIndex>(i));
+  }
+  g_bleService.publishStatus(bleCtx);
 
   delay(1); // keep UI responsive
 }
