@@ -3,16 +3,20 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import FaultTicker from '@/components/FaultTicker';
 import HomeStatusPanel from '@/components/HomeStatusPanel';
+import ProtectionFaultModal from '@/components/ProtectionFaultModal';
 import RelayGrid from '@/components/RelayGrid';
 import StatusBanner from '@/components/StatusBanner';
 import { palette } from '@/theme/colors';
 import { spacing } from '@/theme/layout';
+
 const HomeScreen = () => {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.heading}>TLTB Controller</Text>
-        <Text style={styles.subheading}>Control relays and monitor telemetry over BLE.</Text>
+        <View>
+          <Text style={styles.heading}>TLTB Controller</Text>
+          <Text style={styles.subheading}>Control relays and monitor telemetry over BLE.</Text>
+        </View>
 
         <StatusBanner />
         <HomeStatusPanel />
@@ -25,6 +29,7 @@ const HomeScreen = () => {
         <RelayGrid />
         <FaultTicker />
       </ScrollView>
+      <ProtectionFaultModal />
     </SafeAreaView>
   );
 };

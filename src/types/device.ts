@@ -16,6 +16,8 @@ export interface RelayStatus extends RelayChannel {
   isOn: boolean;
 }
 
+export type RelayStateMap = Partial<Record<RelayId, boolean>>;
+
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected';
 
 export type ControllerMode = 'HD' | 'RV';
@@ -37,4 +39,10 @@ export interface HomeStatusSnapshot {
   faultMask: number;
   faultMessages: string[];
   timestamp: number;
+}
+
+export interface BleStatusPayload extends Partial<HomeStatusSnapshot> {
+  relayMask?: number;
+  statusFlags?: number;
+  relays?: RelayStateMap;
 }

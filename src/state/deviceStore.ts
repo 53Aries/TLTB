@@ -13,6 +13,13 @@ export interface KnownDevice {
   lastSeenTs: number;
 }
 
+interface RelayCommandError {
+  relayId: RelayId;
+  relayLabel: string;
+  message: string;
+  timestamp: number;
+}
+
 interface DeviceStore {
   connectionState: ConnectionState;
   relays: RelayMap;
@@ -20,12 +27,17 @@ interface DeviceStore {
   lastUpdated: number | null;
   transport: TransportControls | null;
   knownDevice: KnownDevice | null;
+  commandError: RelayCommandError | null;
+  protectionFaultAcknowledged: boolean;
   setConnectionState: (state: ConnectionState) => void;
   setHomeStatus: (snapshot: HomeStatusSnapshot) => void;
   setRelayState: (payload: { id: RelayId; isOn: boolean }) => void;
   setKnownDevice: (device: KnownDevice | null) => void;
   updateKnownDeviceSignal: (rssi: number | null) => void;
   registerTransport: (controls: TransportControls | null) => void;
+  setCommandError: (error: RelayCommandError | null) => void;
+  clearProtectionFault: () => void;
+  resetFaultAcknowledgment: () => void;
   requestRelayToggle: (id: RelayId) => Promise<void>;
 }
 
@@ -35,6 +47,11 @@ const buildRelayMap = (): RelayMap =>
     return acc;
   }, {} as RelayMap);
 
+const relayLabelLookup = RELAY_CHANNELS.reduce<Record<RelayId, string>>((acc, relay) => {
+  acc[relay.id] = relay.label;
+  return acc;
+}, {} as Record<RelayId, string>);
+
 export const useDeviceStore = create<DeviceStore>((set, get) => ({
   connectionState: 'disconnected',
   relays: buildRelayMap(),
@@ -42,6 +59,8 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
   lastUpdated: null,
   transport: null,
   knownDevice: null,
+  commandError: null,
+  protectionFaultAcknowledged: false,
   setConnectionState: (connectionState) => set({ connectionState }),
   setHomeStatus: (homeStatus) => set({ homeStatus, lastUpdated: homeStatus.timestamp }),
   setRelayState: ({ id, isOn }) =>
@@ -75,6 +94,9 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
       };
     }),
   registerTransport: (controls) => set({ transport: controls }),
+  setCommandError: (error) => set({ commandError: error }),
+  clearProtectionFault: () => set({ protectionFaultAcknowledged: true }),
+  resetFaultAcknowledgment: () => set({ protectionFaultAcknowledged: false }),
   requestRelayToggle: async (id) => {
     const state = get();
     const current = state.relays[id]?.isOn ?? false;
@@ -90,6 +112,12 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
       await state.transport.setRelayState(id, next);
     } catch (error) {
       state.setRelayState({ id, isOn: current });
+      state.setCommandError({
+        relayId: id,
+        relayLabel: relayLabelLookup[id] ?? id,
+        message: error instanceof Error ? error.message : 'Command failed',
+        timestamp: Date.now(),
+      });
       throw error;
     }
   },

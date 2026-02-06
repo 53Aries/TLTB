@@ -24,31 +24,29 @@ const RelayToggleButton = ({ label, description, isOn, disabled, onPress }: Rela
       pressed && !disabled ? styles.pressed : null,
     ]}
   >
-    <View style={styles.headerRow}>
-      <Text style={styles.label}>{label}</Text>
-      <View style={[styles.badge, isOn ? styles.badgeOn : styles.badgeOff]}>
-        <Text style={styles.badgeText}>{isOn ? 'ON' : 'OFF'}</Text>
-      </View>
+    <Text style={styles.label} numberOfLines={1}>{label}</Text>
+    <View style={[styles.badge, isOn ? styles.badgeOn : styles.badgeOff]}>
+      <Text style={styles.badgeText} numberOfLines={1}>{isOn ? 'ON' : 'OFF'}</Text>
     </View>
-    <Text style={styles.description}>{description}</Text>
+    <Text style={styles.description} numberOfLines={2}>{description}</Text>
   </Pressable>
 );
 
 const styles = StyleSheet.create({
   base: {
-    flex: 1,
+    width: '47%',
+    minHeight: 120,
     padding: spacing.lg,
     borderRadius: radius.lg,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: palette.outline,
     backgroundColor: palette.card,
-    gap: spacing.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   active: {
     borderColor: palette.accent,
-    shadowColor: palette.accent,
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
+    backgroundColor: palette.accent + '20',
   },
   inactive: {
     borderColor: palette.outline,
@@ -57,26 +55,26 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   pressed: {
-    transform: [{ scale: 0.98 }],
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    opacity: 0.8,
   },
   label: {
     color: palette.textPrimary,
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: spacing.xs,
   },
   description: {
     color: palette.textSecondary,
-    fontSize: 13,
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: spacing.xs,
   },
   badge: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
-    borderRadius: radius.md,
+    borderRadius: radius.full,
+    marginVertical: spacing.sm,
   },
   badgeOn: {
     backgroundColor: palette.success,
@@ -87,7 +85,7 @@ const styles = StyleSheet.create({
   badgeText: {
     color: palette.background,
     fontWeight: '700',
-    fontSize: 12,
+    fontSize: 14,
   },
 });
 

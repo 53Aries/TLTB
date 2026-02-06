@@ -1,0 +1,12 @@
+{
+  "mode": "HD",
+  "loadAmps": 12.4,
+  "activeLabel": "LEFT",
+  "srcVoltage": 12.7,
+  "outVoltage": 12.3,
+  "cooldownSecsRemaining": 0,
+  "faultMask": 0,
+  "timestamp": 1700000000000,
+  "statusFlags": 3,
+  "relayMask": 3
+}

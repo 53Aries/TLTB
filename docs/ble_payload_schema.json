@@ -1,0 +1,112 @@
+{
+  "$ref": "#/definitions/BleStatusPayload",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "BleStatusPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "activeLabel": {
+          "type": "string"
+        },
+        "cooldownActive": {
+          "type": "boolean"
+        },
+        "cooldownSecsRemaining": {
+          "type": "number"
+        },
+        "faultMask": {
+          "type": "number"
+        },
+        "faultMessages": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "loadAmps": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lvpBypass": {
+          "type": "boolean"
+        },
+        "lvpLatched": {
+          "type": "boolean"
+        },
+        "mode": {
+          "$ref": "#/definitions/ControllerMode"
+        },
+        "outVoltage": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "outvBypass": {
+          "type": "boolean"
+        },
+        "outvLatched": {
+          "type": "boolean"
+        },
+        "relayMask": {
+          "type": "number"
+        },
+        "relays": {
+          "$ref": "#/definitions/RelayStateMap"
+        },
+        "srcVoltage": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "startupGuard": {
+          "type": "boolean"
+        },
+        "statusFlags": {
+          "type": "number"
+        },
+        "timestamp": {
+          "type": "number"
+        },
+        "twelveVoltEnabled": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "ControllerMode": {
+      "enum": [
+        "HD",
+        "RV"
+      ],
+      "type": "string"
+    },
+    "RelayStateMap": {
+      "additionalProperties": false,
+      "properties": {
+        "relay-aux": {
+          "type": "boolean"
+        },
+        "relay-brake": {
+          "type": "boolean"
+        },
+        "relay-left": {
+          "type": "boolean"
+        },
+        "relay-marker": {
+          "type": "boolean"
+        },
+        "relay-right": {
+          "type": "boolean"
+        },
+        "relay-tail": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  }
+}

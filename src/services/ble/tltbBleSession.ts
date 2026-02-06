@@ -25,6 +25,14 @@ interface SessionOptions {
 }
 
 const RSSI_INTERVAL_MS = 2000;
+const RELAY_ACK_TIMEOUT_MS = 3000;
+
+interface PendingRelayAck {
+  desiredState: boolean;
+  resolve: () => void;
+  reject: (error: Error) => void;
+  timeoutId: ReturnType<typeof setTimeout>;
+}
 
 export const createTltbBleSession = (
   handlers: BleSessionHandlers,
@@ -39,6 +47,59 @@ export const createTltbBleSession = (
   let stopped = false;
   let preferredDeviceId = options.initialKnownDevice?.id ?? null;
   let rememberedDevice = options.initialKnownDevice ?? null;
+  const pendingRelayAcks = new Map<RelayId, PendingRelayAck>();
+
+  const resolvePendingRelayAck = (relayId: RelayId) => {
+    const pending = pendingRelayAcks.get(relayId);
+    if (!pending) {
+      return;
+    }
+    clearTimeout(pending.timeoutId);
+    pendingRelayAcks.delete(relayId);
+    pending.resolve();
+  };
+
+  const rejectPendingRelayAck = (relayId: RelayId, error: Error) => {
+    const pending = pendingRelayAcks.get(relayId);
+    if (!pending) {
+      return;
+    }
+    clearTimeout(pending.timeoutId);
+    pendingRelayAcks.delete(relayId);
+    pending.reject(error);
+  };
+
+  const rejectAllPendingRelayAcks = (error: Error) => {
+    pendingRelayAcks.forEach((_, relayId) => {
+      rejectPendingRelayAck(relayId, error);
+    });
+  };
+
+  const waitForRelayAck = (relayId: RelayId, desiredState: boolean) => {
+    if (pendingRelayAcks.has(relayId)) {
+      rejectPendingRelayAck(relayId, new Error('Relay command superseded'));
+    }
+
+    let resolveAck: () => void;
+    let rejectAck: (error: Error) => void;
+    const promise = new Promise<void>((resolve, reject) => {
+      resolveAck = resolve;
+      rejectAck = reject;
+    });
+
+    const timeoutId = setTimeout(() => {
+      rejectPendingRelayAck(relayId, new Error('Relay command timed out'));
+    }, RELAY_ACK_TIMEOUT_MS);
+
+    pendingRelayAcks.set(relayId, {
+      desiredState,
+      resolve: resolveAck!,
+      reject: rejectAck!,
+      timeoutId,
+    });
+
+    return promise;
+  };
 
   const stopRssiMonitor = () => {
     if (rssiTimer) {
@@ -60,6 +121,7 @@ export const createTltbBleSession = (
     statusSubscription = null;
     disconnectSubscription?.remove();
     disconnectSubscription = null;
+    rejectAllPendingRelayAcks(new Error('BLE device disconnected'));
 
     if (activeDevice) {
       try {
@@ -122,29 +184,40 @@ export const createTltbBleSession = (
   };
 
   const monitorStatus = (device: Device) => {
+    console.log('[BLE] Setting up status monitor...');
     statusSubscription = device.monitorCharacteristicForService(
       bleProfile.serviceUuid,
       bleProfile.statusCharacteristicUuid,
       (error, characteristic) => {
         if (error) {
-          console.warn('[BLE] Status monitor error', error);
+          console.error('[BLE] Status monitor error:', error);
+          console.error('[BLE] Error details:', JSON.stringify(error, null, 2));
           handlers.onConnectionChange('disconnected');
           cleanupDevice().finally(scheduleReconnect);
           return;
         }
 
         if (!characteristic?.value) {
+          console.log('[BLE] Received empty characteristic update');
           return;
         }
 
+        console.log('[BLE] Received status notification, length:', characteristic.value.length);
         const parsed = parseStatusNotification(characteristic.value);
         if (!parsed) {
+          console.warn('[BLE] Failed to parse status notification');
           return;
         }
+        console.log('[BLE] Parsed status successfully:', parsed.snapshot.mode, parsed.snapshot.activeLabel);
 
         handlers.onStatus(parsed.snapshot);
         Object.entries(parsed.relayStates).forEach(([id, isOn]) => {
           if (typeof isOn === 'boolean') {
+            const relayId = id as RelayId;
+            const pending = pendingRelayAcks.get(relayId);
+            if (pending && pending.desiredState === isOn) {
+              resolvePendingRelayAck(relayId);
+            }
             handlers.onRelayState({ id: id as RelayId, isOn });
           }
         });
@@ -225,10 +298,17 @@ export const createTltbBleSession = (
   return {
     setRelayState: async (id, desiredState) => {
       handlers.onRelayState({ id, isOn: desiredState });
+      const ackPromise = waitForRelayAck(id, desiredState);
       try {
         await sendCommand({ type: 'relay', relayId: id, state: desiredState });
+        await ackPromise;
       } catch (error) {
         console.warn('[BLE] Failed to send relay command', error);
+        rejectPendingRelayAck(
+          id,
+          error instanceof Error ? error : new Error('Relay command failed'),
+        );
+        await ackPromise.catch(() => undefined);
         handlers.onRelayState({ id, isOn: !desiredState });
         throw error;
       }
@@ -245,6 +325,7 @@ export const createTltbBleSession = (
       stopped = true;
       clearReconnectTimer();
       manager.stopDeviceScan();
+      rejectAllPendingRelayAcks(new Error('BLE transport stopped'));
       cleanupDevice().finally(() => manager.destroy());
     },
   };

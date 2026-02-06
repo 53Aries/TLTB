@@ -33,7 +33,8 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.md,
+    justifyContent: 'space-between',
+    rowGap: spacing.md,
     backgroundColor: palette.surface,
     padding: spacing.md,
     borderRadius: 24,

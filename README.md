@@ -12,6 +12,8 @@ npm run android          # open Expo Go on Android
 npm run ios              # requires macOS / iOS simulator
 npm run web              # mock transport only
 npm run typecheck        # TypeScript only
+npm test                 # Vitest suite for BLE payload + state logic
+npm run decode:ble-payload -- --value <base64>
 ```
 
 ## Project layout
@@ -33,9 +35,10 @@ npm run typecheck        # TypeScript only
 
 - **Profile** – `src/config/bleProfile.ts` contains the production UUIDs (`0000a11c-*` service plus status/control characteristics). Scans filter by the configured service UUID and the `TLTB` name prefix.
 - **Payload contract** – firmware emits Base64 JSON matching `HomeStatusSnapshot` plus a `relays` map; parsing lives in `src/services/ble/statusParser.ts` and feeds the Zustand store.
+- **Schema contract** – `docs/ble_payload_schema.json` mirrors `BleStatusPayload`; run `npm run export:ble-schema` after tweaking relay IDs or telemetry fields, `npm run validate:ble-payload -- docs/examples/status_sample.json` to lint fixtures, and `npm run decode:ble-payload -- --value <base64>` to inspect captured notifications.
 - **Transport selection** – `useBleTransport` chooses the real client when `EXPO_PUBLIC_USE_MOCK_BLE=false`; restart Metro after toggling so Expo picks up the flag.
 - **Device memory** – AsyncStorage + `useKnownDeviceBootstrap` persist the last controller (id/name/RSSI) and hydrate the store pre-scan for faster reconnects.
-- **Command flow** – relay taps optimistically flip UI state while writing `{ type: 'relay', relayId, state }` to the control characteristic; failures roll the tile back.
+- **Command flow** – relay taps still optimistically flip UI state, but the app now waits for the next status frame to confirm each `{ type: 'relay', relayId, state }` write; missing acks within ~3 seconds revert the tile and surface a dismissal banner inside StatusBanner.
 - **Security/TX power** – the firmware currently allows unauthenticated, no-IO pairing and runs at `ESP_PWR_LVL_P9`; when that policy evolves we’ll mirror requirements here.
 
 ## Maximizing BLE range
@@ -47,10 +50,9 @@ npm run typecheck        # TypeScript only
 
 ## Next steps
 
-1. Harden the command ACK path (or add firmware-level confirms) so the UI can surface failures explicitly.
-2. Mirror the firmware schema (relay names, telemetry fields) via a shared JSON file or codegen step so breaking changes are obvious.
-3. Add integration tests (Detox or Maestro) that tap each relay tile and verify the correct GATT writes are issued.
-4. Prepare release builds via Expo EAS once BLE is stable.
+1. Hook the generated schema (`docs/ble_payload_schema.json`) into firmware CI/tests (you can reuse `npm run validate:ble-payload -- <file>` to lint fixtures) so payload drift is caught automatically.
+2. Add integration tests (Detox or Maestro) that tap each relay tile and verify the correct GATT writes are issued.
+3. Prepare release builds via Expo EAS once BLE is stable.
 
 ## Environment flags
 
