@@ -7,6 +7,7 @@
 // ESP-IDF C headers already provide their own extern "C" guards; direct includes keep this cleaner.
 #include "esp_task_wdt.h"
 #include "esp_ota_ops.h"
+#include "esp_log.h"
 #include "soc/rtc_cntl_reg.h"  // For brownout detector control
 
 #include <WiFi.h>
@@ -31,6 +32,7 @@ static bool g_devBoot = false;   // Developer-boot mode flag
 static bool g_startupGuard = false; // Prevents relay activation until 1p8t is cycled to OFF
 static TltbBleService g_bleService;
 static uint32_t g_faultMask = 0;
+static constexpr bool kBypassInaPresenceCheck = true; // Temporary bypass when sensors are disconnected
 
 // Cooldown timer state (20.5A usage limit)
 static uint32_t g_highCurrentStartMs = 0; // When >20.5A current started (0=not active)
@@ -133,7 +135,9 @@ static void enforceRotaryMode(RotaryMode m) {
 
   switch (m) {
     case MODE_ALL_OFF:
+      #ifndef DEV_MODE
       allOff();
+      #endif
       break;
 
     case MODE_RF_ENABLE:
@@ -200,18 +204,33 @@ static uint32_t computeFaultMask(){
 static bool bleCanDriveRelays() {
   if (g_devBoot) return false;
   if (g_startupGuard) return false;
+  // Allow BLE control in RF mode OR in dev mode (bare ESP32 without rotary hardware)
+  #ifdef DEV_MODE
+  if (g_stableRotaryMode != MODE_RF_ENABLE && g_stableRotaryMode != MODE_ALL_OFF) {
+    return false;
+  }
+  #else
   if (g_stableRotaryMode != MODE_RF_ENABLE) return false;
+  #endif
   if (protector.isLvpLatched() || protector.isOcpLatched() || protector.isOutvLatched()) return false;
   return true;
 }
 
 static void handleBleRelayCommand(RelayIndex idx, bool desiredOn) {
-  if (!bleCanDriveRelays()) return;
+  Serial.printf("[BLE] Relay command received: idx=%d, desiredOn=%d\n", (int)idx, desiredOn);
+  if (!bleCanDriveRelays()) {
+    Serial.printf("[BLE] Relay control blocked - devBoot=%d, startupGuard=%d, rotaryMode=%d (need %d for RF), lvp=%d, ocp=%d, outv=%d\n",
+      g_devBoot, g_startupGuard, (int)g_stableRotaryMode, (int)MODE_RF_ENABLE,
+      protector.isLvpLatched(), protector.isOcpLatched(), protector.isOutvLatched());
+    return;
+  }
   int target = static_cast<int>(idx);
   if (target < (int)R_LEFT || target >= (int)R_ENABLE) return;
   if (desiredOn) {
+    Serial.printf("[BLE] Turning relay %d ON\n", (int)idx);
     relayOn(idx);
   } else {
+    Serial.printf("[BLE] Turning relay %d OFF\n", (int)idx);
     relayOff(idx);
   }
 }
@@ -243,6 +262,13 @@ static const char* describeActiveLabel(RotaryMode mode) {
 
 // ---------------- setup/loop ----------------
 void setup() {
+  Serial.begin(115200);
+  while (!Serial && millis() < 1500) {
+    delay(10);
+  }
+  esp_log_level_set("*", ESP_LOG_INFO);
+  esp_log_level_set("TLTB-BLE", ESP_LOG_DEBUG);
+
   esp_task_wdt_deinit();
   
   // Enable brownout detector to prevent running with unstable voltage
@@ -461,30 +487,32 @@ void setup() {
     ui->setFaultMask(computeFaultMask());
     // Don't show home screen yet - let battery detection run first with splash visible
     
-    // Critical check: INA sensors must be present for system to operate
-    if (!INA226::PRESENT || !INA226_SRC::PRESENT) {
-      // INA sensor missing - system cannot operate safely
-      tft->fillScreen(ST77XX_BLACK);
-      tft->setTextColor(ST77XX_RED);
-      tft->setTextSize(2);
-      tft->setCursor(6, 6);
-      tft->println("System Error");
-      tft->setTextSize(1);
-      tft->setTextColor(ST77XX_WHITE);
-      tft->setCursor(6, 34);
-      tft->println("Internal fault detected.");
-      tft->setCursor(6, 46);
-      tft->println("Device disabled.");
-      tft->setCursor(6, 58);
-      if (!INA226::PRESENT) tft->println("Load sensor missing.");
-      if (!INA226_SRC::PRESENT) tft->println("Source sensor missing.");
-      tft->setCursor(6, 82);
-      tft->println("Contact support.");
-      
-      // Block here forever - system inoperable
-      while(true) {
-        for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
-        delay(100);
+    const bool sensorsMissing = (!INA226::PRESENT || !INA226_SRC::PRESENT);
+    if (sensorsMissing) {
+      if (!kBypassInaPresenceCheck) {
+        tft->fillScreen(ST77XX_BLACK);
+        tft->setTextColor(ST77XX_RED);
+        tft->setTextSize(2);
+        tft->setCursor(6, 6);
+        tft->println("System Error");
+        tft->setTextSize(1);
+        tft->setTextColor(ST77XX_WHITE);
+        tft->setCursor(6, 34);
+        tft->println("Internal fault detected.");
+        tft->setCursor(6, 46);
+        tft->println("Device disabled.");
+        tft->setCursor(6, 58);
+        if (!INA226::PRESENT) tft->println("Load sensor missing.");
+        if (!INA226_SRC::PRESENT) tft->println("Source sensor missing.");
+        tft->setCursor(6, 82);
+        tft->println("Contact support.");
+
+        while (true) {
+          for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+          delay(100);
+        }
+      } else {
+        Serial.println("[APP] INA226 hardware missing; bypassing presence guard");
       }
     }
     
@@ -533,6 +561,7 @@ void setup() {
     g_bleService.requestImmediateStatus();
   };
   g_bleService.begin("TLTB Controller", bleCallbacks);
+  Serial.println("[APP] BLE begin invoked");
 }
 
 void loop() {

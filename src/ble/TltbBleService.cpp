@@ -1,5 +1,6 @@
 #include "ble/TltbBleService.hpp"
 
+#include <Arduino.h>
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
 #include <esp_gap_ble_api.h>
@@ -14,10 +15,21 @@ constexpr char kServiceUuid[] = "0000a11c-0000-1000-8000-00805f9b34fb";
 constexpr char kStatusCharUuid[] = "0000a11d-0000-1000-8000-00805f9b34fb";
 constexpr char kControlCharUuid[] = "0000a11e-0000-1000-8000-00805f9b34fb";
 constexpr uint32_t kStatusIntervalMs = 1000;
-constexpr size_t kStatusJsonCap = 512;
-constexpr size_t kStatusBase64Cap = ((kStatusJsonCap + 2) / 3) * 4 + 4;
+constexpr size_t kStatusJsonCap = 512;               // ArduinoJson document capacity
+constexpr size_t kStatusPayloadLimit = 180;          // Max JSON bytes (base64: 240 < 244 MTU)
+constexpr size_t kStatusBase64Cap = ((kStatusPayloadLimit + 2) / 3) * 4 + 4;
 constexpr size_t kControlDecodeCap = 256;
 const char* kBleLogTag = "TLTB-BLE";
+
+enum StatusFlag : uint16_t {
+  kFlagTwelveVoltEnabled = 1 << 0,
+  kFlagLvpLatched        = 1 << 1,
+  kFlagLvpBypass         = 1 << 2,
+  kFlagOutvLatched       = 1 << 3,
+  kFlagOutvBypass        = 1 << 4,
+  kFlagCooldownActive    = 1 << 5,
+  kFlagStartupGuard      = 1 << 6,
+};
 
 const char* relayIdForIndex(RelayIndex idx) {
   switch (idx) {
@@ -106,6 +118,7 @@ void TltbBleService::begin(const char* deviceName, const BleCallbacks& callbacks
 
   _callbacks = callbacks;
   NimBLEDevice::init(deviceName && deviceName[0] ? deviceName : "TLTB Controller");
+  Serial.println("[BLE] NimBLE initialized");
   // Max power on every BLE role; battery draw is not a constraint for this product.
   NimBLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_DEFAULT);
   NimBLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_ADV);
@@ -149,6 +162,7 @@ void TltbBleService::begin(const char* deviceName, const BleCallbacks& callbacks
 
   _initialized = true;
   ESP_LOGI(kBleLogTag, "BLE service ready (name=%s)", deviceName && deviceName[0] ? deviceName : "TLTB Controller");
+  Serial.println("[BLE] Advertising started");
 }
 
 void TltbBleService::publishStatus(const BleStatusContext& ctx) {
@@ -169,25 +183,45 @@ void TltbBleService::publishStatus(const BleStatusContext& ctx) {
   JsonObject root = doc.to<JsonObject>();
   root["mode"] = (ctx.uiMode == 1) ? "RV" : "HD";
   root["activeLabel"] = ctx.activeLabel ? ctx.activeLabel : "OFF";
-  root["twelveVoltEnabled"] = ctx.enableRelay;
-  root["lvpLatched"] = ctx.telemetry.lvpLatched;
-  root["lvpBypass"] = ctx.lvpBypass;
-  root["outvLatched"] = ctx.telemetry.outvLatched;
-  root["outvBypass"] = ctx.outvBypass;
-  root["cooldownActive"] = ctx.telemetry.cooldownActive;
   root["cooldownSecsRemaining"] = ctx.telemetry.cooldownSecsRemaining;
-  root["startupGuard"] = ctx.startupGuard;
   root["faultMask"] = ctx.faultMask;
   root["timestamp"] = ctx.timestampMs ? ctx.timestampMs : now;
+
+  uint16_t statusFlags = 0;
+  if (ctx.enableRelay) {
+    statusFlags |= kFlagTwelveVoltEnabled;
+  }
+  if (ctx.telemetry.lvpLatched) {
+    statusFlags |= kFlagLvpLatched;
+  }
+  if (ctx.lvpBypass) {
+    statusFlags |= kFlagLvpBypass;
+  }
+  if (ctx.telemetry.outvLatched) {
+    statusFlags |= kFlagOutvLatched;
+  }
+  if (ctx.outvBypass) {
+    statusFlags |= kFlagOutvBypass;
+  }
+  if (ctx.telemetry.cooldownActive) {
+    statusFlags |= kFlagCooldownActive;
+  }
+  if (ctx.startupGuard) {
+    statusFlags |= kFlagStartupGuard;
+  }
+  root["statusFlags"] = statusFlags;
 
   setNullableFloat(root, "loadAmps", ctx.telemetry.loadA);
   setNullableFloat(root, "srcVoltage", ctx.telemetry.srcV);
   setNullableFloat(root, "outVoltage", ctx.telemetry.outV);
 
-  JsonObject relays = root.createNestedObject("relays");
+  uint32_t relayMask = 0;
   for (int i = 0; i < (int)R_ENABLE; ++i) {
-    relays[relayIdForIndex((RelayIndex)i)] = ctx.relayStates[i];
+    if (ctx.relayStates[i]) {
+      relayMask |= (1u << i);
+    }
   }
+  root["relayMask"] = relayMask;
 
   size_t needed = measureJson(doc);
   if (needed >= kStatusJsonCap) {
@@ -199,6 +233,11 @@ void TltbBleService::publishStatus(const BleStatusContext& ctx) {
   size_t jsonLen = serializeJson(doc, jsonBuffer, sizeof(jsonBuffer));
   if (jsonLen == 0 || jsonLen >= sizeof(jsonBuffer)) {
     ESP_LOGW(kBleLogTag, "Failed to serialize status JSON");
+    return;
+  }
+
+  if (jsonLen > kStatusPayloadLimit) {
+    ESP_LOGW(kBleLogTag, "Status payload too large (%u bytes)", static_cast<unsigned>(jsonLen));
     return;
   }
 
@@ -221,8 +260,11 @@ void TltbBleService::requestImmediateStatus() {
 
 void TltbBleService::handleControlWrite(const std::string& value) {
   if (value.empty()) {
+    ESP_LOGW(kBleLogTag, "Empty control payload");
     return;
   }
+
+  ESP_LOGI(kBleLogTag, "Control write received (%u bytes)", static_cast<unsigned>(value.size()));
 
   uint8_t decoded[kControlDecodeCap];
   size_t decodedLen = sizeof(decoded);
@@ -231,6 +273,14 @@ void TltbBleService::handleControlWrite(const std::string& value) {
     return;
   }
 
+  ESP_LOGI(kBleLogTag, "Decoded %u bytes", static_cast<unsigned>(decodedLen));
+
+  // Log the actual decoded JSON string
+  char jsonStr[kControlDecodeCap + 1];
+  memcpy(jsonStr, decoded, decodedLen);
+  jsonStr[decodedLen] = '\0';
+  ESP_LOGI(kBleLogTag, "Decoded JSON: %s", jsonStr);
+
   StaticJsonDocument<kControlDecodeCap> doc;
   DeserializationError err = deserializeJson(doc, decoded, decodedLen);
   if (err) {
@@ -238,16 +288,26 @@ void TltbBleService::handleControlWrite(const std::string& value) {
     return;
   }
 
-  const char* type = doc["type"] | "";
-  if (strcmp(type, "relay") == 0) {
-    const char* relayId = doc["relayId"] | nullptr;
+  const char* type = doc["type"].as<const char*>();
+  ESP_LOGI(kBleLogTag, "Command type: %s", type ? type : "null");
+  
+  if (type && strcmp(type, "relay") == 0) {
+    const char* relayId = doc["relayId"].as<const char*>();
     bool desiredState = doc["state"].as<bool>();
+    ESP_LOGI(kBleLogTag, "Relay command: %s -> %s", relayId ? relayId : "null", desiredState ? "ON" : "OFF");
     RelayIndex idx;
-    if (relayIndexFromId(relayId, idx) && _callbacks.onRelayCommand) {
-      _callbacks.onRelayCommand(idx, desiredState);
+    if (relayId && relayIndexFromId(relayId, idx)) {
+      ESP_LOGI(kBleLogTag, "Relay index: %d, has callback: %s", (int)idx, _callbacks.onRelayCommand ? "yes" : "no");
+      if (_callbacks.onRelayCommand) {
+        _callbacks.onRelayCommand(idx, desiredState);
+        ESP_LOGI(kBleLogTag, "Relay command executed");
+      }
+    } else {
+      ESP_LOGW(kBleLogTag, "Invalid relay ID: %s", relayId ? relayId : "null");
     }
     requestImmediateStatus();
-  } else if (strcmp(type, "refresh") == 0) {
+  } else if (type && strcmp(type, "refresh") == 0) {
+    ESP_LOGI(kBleLogTag, "Refresh command received");
     if (_callbacks.onRefreshRequest) {
       _callbacks.onRefreshRequest();
     }
