@@ -45,7 +45,7 @@ private:
   class ControlCallbacks;
 
   void handleControlWrite(const std::string& value);
-  void handleClientConnect();
+  void handleClientConnect(NimBLEServer* server);
   void handleClientDisconnect();
 
   bool _initialized = false;

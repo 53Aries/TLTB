@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
+#include <host/ble_gatt.h>
+#include <host/ble_gattc.h>
 #include <esp_gap_ble_api.h>
 #include <esp_log.h>
 #include <mbedtls/base64.h>
@@ -86,8 +88,9 @@ public:
   explicit ServerCallbacks(TltbBleService& service) : _service(service) {}
 
   void onConnect(NimBLEServer* server) override {
-    (void)server;
-    _service.handleClientConnect();
+    // Request larger MTU for status notifications (need ~270 bytes for base64 payload)
+    server->updateConnParams(server->getPeerInfo(0).getConnHandle(), 24, 48, 0, 60);
+    _service.handleClientConnect(server);
   }
 
   void onDisconnect(NimBLEServer* server) override {
@@ -120,6 +123,11 @@ void TltbBleService::begin(const char* deviceName, const BleCallbacks& callbacks
   _callbacks = callbacks;
   NimBLEDevice::init(deviceName && deviceName[0] ? deviceName : "TLTB Controller");
   Serial.println("[BLE] NimBLE initialized");
+  
+  // Set preferred MTU to 512 bytes (max BLE supports) for large status notifications
+  NimBLEDevice::setMTU(512);
+  ESP_LOGI(kBleLogTag, "Preferred MTU set to 512 bytes");
+  
   // Max power on every BLE role; battery draw is not a constraint for this product.
   NimBLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_DEFAULT);
   NimBLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_ADV);
@@ -338,8 +346,21 @@ void TltbBleService::handleControlWrite(const std::string& value) {
   }
 }
 
-void TltbBleService::handleClientConnect() {
+void TltbBleService::handleClientConnect(NimBLEServer* server) {
   _connected = true;
+  
+  // Request MTU exchange to support larger notifications (default 23 bytes is too small)
+  // Need ~270 bytes for base64-encoded status payload
+  if (server) {
+    uint16_t connHandle = server->getPeerInfo(0).getConnHandle();
+    // Request 512 byte MTU (max for BLE)
+    int rc = ble_gattc_exchange_mtu(connHandle, nullptr, nullptr);
+    if (rc == 0) {
+      ESP_LOGI(kBleLogTag, "MTU exchange requested");
+    } else {
+      ESP_LOGW(kBleLogTag, "MTU exchange failed: %d", rc);
+    }
+  }
 }
 
 void TltbBleService::handleClientDisconnect() {
