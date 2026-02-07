@@ -7,13 +7,15 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "description": "Professional trailer lighting test controller with relay management, telemetry monitoring, and protection systems.",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.arieselectronics.tltb"
     },
     "android": {
       "adaptiveIcon": {
@@ -26,11 +28,11 @@
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
         "android.permission.BLUETOOTH_CONNECT",
-        "android.permission.BLUETOOTH",
-        "android.permission.BLUETOOTH_ADMIN",
-        "android.permission.BLUETOOTH_CONNECT"
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.ACCESS_FINE_LOCATION"
       ],
-      "package": "com.anonymous.tltbcontrol"
+      "package": "com.arieselectronics.tltb",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png"
