@@ -42,8 +42,8 @@ The ESP32 flash is divided into multiple partitions:
 ### Entering Recovery Mode
 
 **At device power-on:**
-1. **Short press** BACK button (< 5 sec): Dev boot mode - normal firmware with WiFi access
-2. **Long press** BACK button (≥ 5 sec): Factory recovery mode - boots minimal recovery firmware
+- **No button**: Normal boot - starts main application firmware
+- **Hold BACK button ≥ 5 sec**: Factory recovery mode - boots minimal recovery firmware for OTA updates
 
 When in factory recovery mode:
 - Display shows "RECOVERY MODE" 

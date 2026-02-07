@@ -50,9 +50,8 @@ When your device won't accept OTA updates after being powered off:
 
 ## What Each Button Does During Boot
 
-- **No button**: Normal boot
-- **BACK < 5 sec**: Dev boot mode (WiFi enabled, normal features)  
-- **BACK ≥ 5 sec**: Factory recovery mode (minimal OTA-only firmware)
+- **No button**: Normal boot - full application starts
+- **BACK ≥ 5 sec**: Factory recovery mode - minimal OTA-only firmware for device recovery
 
 ## Files Created
 

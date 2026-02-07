@@ -29,7 +29,6 @@ static Adafruit_ST7735* tft = nullptr;   // shared SPI
 static DisplayUI* ui = nullptr;
 Preferences prefs;
 static Telemetry tele{};
-static bool g_devBoot = false;   // Developer-boot mode flag
 static bool g_startupGuard = false; // Prevents relay activation until 1p8t is cycled to OFF
 static TltbBleService g_bleService;
 static uint32_t g_faultMask = 0;
@@ -203,7 +202,6 @@ static uint32_t computeFaultMask(){
 }
 
 static bool bleCanDriveRelays() {
-  if (g_devBoot) return false;
   if (g_startupGuard) return false;
   // Allow BLE control in RF mode OR in dev mode (bare ESP32 without rotary hardware)
   #ifdef DEV_MODE
@@ -220,8 +218,8 @@ static bool bleCanDriveRelays() {
 static void handleBleRelayCommand(RelayIndex idx, bool desiredOn) {
   Serial.printf("[BLE] Relay command received: idx=%d, desiredOn=%d\n", (int)idx, desiredOn);
   if (!bleCanDriveRelays()) {
-    Serial.printf("[BLE] Relay control blocked - devBoot=%d, startupGuard=%d, rotaryMode=%d (need %d for RF), lvp=%d, ocp=%d, outv=%d\n",
-      g_devBoot, g_startupGuard, (int)g_stableRotaryMode, (int)MODE_RF_ENABLE,
+    Serial.printf("[BLE] Relay control blocked - startupGuard=%d, rotaryMode=%d (need %d for RF), lvp=%d, ocp=%d, outv=%d\n",
+      g_startupGuard, (int)g_stableRotaryMode, (int)MODE_RF_ENABLE,
       protector.isLvpLatched(), protector.isOcpLatched(), protector.isOutvLatched());
     return;
   }
@@ -304,52 +302,39 @@ void setup() {
   pinMode(PIN_ENC_OK,   INPUT_PULLUP); // OK: idle HIGH (~3V3), pressed LOW
   pinMode(PIN_ENC_BACK, INPUT_PULLUP);
 
-  // Dev boot detection: BACK button held during power-on
-  // Short press = dev mode, Long press (5s) = boot to factory recovery partition
+  // Factory recovery boot detection: BACK button held during power-on for 5 seconds
+  // Boots to factory partition for OTA recovery when main partitions are corrupted
   delay(5);
   if (digitalRead(PIN_ENC_BACK) == LOW) {
     uint32_t holdStart = millis();
-    bool longPress = false;
     
     // Wait for release or 5 second timeout
     while (digitalRead(PIN_ENC_BACK) == LOW) {
       if (millis() - holdStart >= 5000) {
-        longPress = true;
+        // Recovery mode: boot to factory partition
+        // This allows OTA updates even if both OTA partitions are corrupted
+        const esp_partition_t* factory = esp_partition_find_first(
+          ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, "factory");
+        
+        if (factory) {
+          Serial.println("\n=== FACTORY RECOVERY MODE ===");
+          Serial.printf("Booting to factory partition at 0x%x\n", factory->address);
+          
+          esp_err_t err = esp_ota_set_boot_partition(factory);
+          if (err == ESP_OK) {
+            delay(100); // Allow serial to flush
+            ESP.restart();
+          } else {
+            Serial.printf("Failed to set factory partition: %d\n", err);
+          }
+        } else {
+          Serial.println("Factory partition not found - please flash factory firmware");
+        }
+        
+        // If we get here, recovery failed - continue normal boot
         break;
       }
       delay(10);
-    }
-    
-    if (longPress) {
-      // Recovery mode: boot to factory partition
-      // This allows OTA updates even if both OTA partitions are corrupted
-      const esp_partition_t* factory = esp_partition_find_first(
-        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, "factory");
-      
-      if (factory) {
-        Serial.println("\n=== FACTORY RECOVERY MODE ===");
-        Serial.printf("Booting to factory partition at 0x%x\n", factory->address);
-        
-        esp_err_t err = esp_ota_set_boot_partition(factory);
-        if (err == ESP_OK) {
-          delay(100); // Allow serial to flush
-          ESP.restart();
-        } else {
-          Serial.printf("Failed to set factory partition: %d\n", err);
-        }
-      } else {
-        Serial.println("Factory partition not found - please flash factory firmware");
-      }
-      
-      // If we get here, recovery failed - fall through to dev mode
-      g_devBoot = true;
-    } else {
-      g_devBoot = true;
-    }
-    
-    // Wait for button release
-    while (digitalRead(PIN_ENC_BACK) == LOW) {
-      delay(1);
     }
   }
 
@@ -467,20 +452,11 @@ void setup() {
     }
   }
 
-  if (g_devBoot) {
-    ui->setFaultMask(0);
-    ui->enterMenu();
-  }
-
-  // sensors + RF (skip in dev-boot)
-  if (!g_devBoot) {
-    INA226::begin();
-    INA226_SRC::begin();
-    RF::begin();
-    Buzzer::begin();
-  } else {
-    Buzzer::begin(); // keep buzzer available for feedback if needed
-  }
+  // Initialize sensors, RF, and buzzer
+  INA226::begin();
+  INA226_SRC::begin();
+  RF::begin();
+  Buzzer::begin();
 
   // Auto-join Wi-Fi (non-blocking)
   // NOTE: WiFi initialization moved to AFTER BLE init for better coexistence
@@ -490,14 +466,13 @@ void setup() {
   }
 
   // Protector init (loads thresholds)
-  if (!g_devBoot) {
-    protector.begin(&prefs);
-    ui->setFaultMask(computeFaultMask());
-    // Don't show home screen yet - let battery detection run first with splash visible
-    
-    const bool sensorsMissing = (!INA226::PRESENT || !INA226_SRC::PRESENT);
-    if (sensorsMissing) {
-      if (!kBypassInaPresenceCheck) {
+  protector.begin(&prefs);
+  ui->setFaultMask(computeFaultMask());
+  // Don't show home screen yet - let battery detection run first with splash visible
+  
+  const bool sensorsMissing = (!INA226::PRESENT || !INA226_SRC::PRESENT);
+  if (sensorsMissing) {
+    if (!kBypassInaPresenceCheck) {
         tft->fillScreen(ST77XX_BLACK);
         tft->setTextColor(ST77XX_RED);
         tft->setTextSize(2);
@@ -521,43 +496,42 @@ void setup() {
         }
       } else {
         Serial.println("[APP] INA226 hardware missing; bypassing presence guard");
-      }
     }
-    
-    // Boot-time off-current safety check: wait 1s for system to stabilize, then verify no unexpected load
-    delay(1000);
-    
-    // Auto-detect battery type and set LVP (wait additional 2s for voltage to stabilize)
-    delay(2000);
-    ui->detectAndSetBatteryType();
-    
-    // Now show home screen after detection completes
-    ui->showStatus(tele);
-    
-    // Read current after stabilization
-    float bootCurrent = INA226::PRESENT ? INA226::readCurrentA() : 0.0f;
-    if (!isnan(bootCurrent) && bootCurrent > 2.0f) {
-      // Unexpected current draw at boot - critical safety issue (internal short or fault)
-      tft->fillScreen(ST77XX_BLACK);
-      tft->setTextColor(ST77XX_RED);
-      tft->setTextSize(2);
-      tft->setCursor(6, 6);
-      tft->println("System Error");
-      tft->setTextSize(1);
-      tft->setTextColor(ST77XX_WHITE);
-      tft->setCursor(6, 34);
-      tft->println("Internal fault detected.");
-      tft->setCursor(6, 46);
-      tft->println("Unexpected load current.");
-      tft->setCursor(6, 70);
-      tft->println("Remove power NOW!");
-      tft->setCursor(6, 94);
-      tft->printf("Boot current: %.1fA", bootCurrent);
-      // Block here forever - require power cycle
-      while(true) {
-        for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
-        delay(100);
-      }
+  }
+  
+  // Boot-time off-current safety check: wait 1s for system to stabilize, then verify no unexpected load
+  delay(1000);
+  
+  // Auto-detect battery type and set LVP (wait additional 2s for voltage to stabilize)
+  delay(2000);
+  ui->detectAndSetBatteryType();
+  
+  // Now show home screen after detection completes
+  ui->showStatus(tele);
+  
+  // Read current after stabilization
+  float bootCurrent = INA226::PRESENT ? INA226::readCurrentA() : 0.0f;
+  if (!isnan(bootCurrent) && bootCurrent > 2.0f) {
+    // Unexpected current draw at boot - critical safety issue (internal short or fault)
+    tft->fillScreen(ST77XX_BLACK);
+    tft->setTextColor(ST77XX_RED);
+    tft->setTextSize(2);
+    tft->setCursor(6, 6);
+    tft->println("System Error");
+    tft->setTextSize(1);
+    tft->setTextColor(ST77XX_WHITE);
+    tft->setCursor(6, 34);
+    tft->println("Internal fault detected.");
+    tft->setCursor(6, 46);
+    tft->println("Unexpected load current.");
+    tft->setCursor(6, 70);
+    tft->println("Remove power NOW!");
+    tft->setCursor(6, 94);
+    tft->printf("Boot current: %.1fA", bootCurrent);
+    // Block here forever - require power cycle
+    while(true) {
+      for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+      delay(100);
     }
   }
 
@@ -590,19 +564,6 @@ void setup() {
 }
 
 void loop() {
-  if (g_devBoot) {
-    tele.srcV = NAN;
-    tele.loadA = NAN;
-    tele.outV = NAN;
-    tele.lvpLatched = false;
-    tele.ocpLatched = false;
-    tele.outvLatched = false;
-    ui->setFaultMask(0);
-    ui->tick(tele);
-    delay(10);
-    return;
-  }
-
   // Read telemetry if present
   tele.srcV  = INA226_SRC::PRESENT ? INA226_SRC::readBusV()    : NAN;
   tele.loadA = INA226::PRESENT     ? INA226::readCurrentA()    : NAN;
