@@ -16,7 +16,7 @@ constexpr char kStatusCharUuid[] = "0000a11d-0000-1000-8000-00805f9b34fb";
 constexpr char kControlCharUuid[] = "0000a11e-0000-1000-8000-00805f9b34fb";
 constexpr uint32_t kStatusIntervalMs = 1000;
 constexpr size_t kStatusJsonCap = 512;               // ArduinoJson document capacity
-constexpr size_t kStatusPayloadLimit = 180;          // Max JSON bytes (base64: 240 < 244 MTU)
+constexpr size_t kStatusPayloadLimit = 200;          // Max JSON bytes (base64: 268, still under 512 MTU)
 constexpr size_t kStatusBase64Cap = ((kStatusPayloadLimit + 2) / 3) * 4 + 4;
 constexpr size_t kControlDecodeCap = 256;
 const char* kBleLogTag = "TLTB-BLE";
@@ -58,7 +58,8 @@ void setNullableFloat(JsonObject obj, const char* key, float value) {
   if (isnan(value)) {
     obj[key] = nullptr;
   } else {
-    obj[key] = value;
+    // Round to 2 decimal places to reduce JSON size
+    obj[key] = roundf(value * 100.0f) / 100.0f;
   }
 }
 
@@ -185,7 +186,7 @@ void TltbBleService::publishStatus(const BleStatusContext& ctx) {
   root["activeLabel"] = ctx.activeLabel ? ctx.activeLabel : "OFF";
   root["cooldownSecsRemaining"] = ctx.telemetry.cooldownSecsRemaining;
   root["faultMask"] = ctx.faultMask;
-  root["timestamp"] = ctx.timestampMs ? ctx.timestampMs : now;
+  // Timestamp removed - app uses notification receipt time
 
   uint16_t statusFlags = 0;
   if (ctx.enableRelay) {
