@@ -116,7 +116,7 @@ spiffs:   10MB   @ 0x610000
 1. Test new firmware for at least 10 seconds before OTA
 2. Ensure critical subsystems initialize reliably
 3. Monitor serial output during validation
-4. Use dev-boot mode (hold BACK during power-on) to bypass protections for testing
+4. If firmware becomes corrupted, use factory recovery mode (hold BACK ≥ 5 sec during power-on)
 
 ## Rollback Behavior
 

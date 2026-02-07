@@ -16,6 +16,7 @@
 #include <HTTPClient.h>
 #include <Update.h>
 #include <ArduinoJson.h>
+#include "esp_coexist.h"
 #include "ota/Ota.hpp"
 
 // ================== NEW: force full home repaint flag ==================
@@ -172,7 +173,9 @@ DisplayUI::DisplayUI(const DisplayCtor& c)
   _setOutvBypass(c.setOutvBypass),
   _getLvpBypass(c.getLvpBypass),
   _setLvpBypass(c.setLvpBypass),
-  _getStartupGuard(c.getStartupGuard) {}
+  _getStartupGuard(c.getStartupGuard),
+  _bleStop(c.onBleStop),
+  _bleRestart(c.onBleRestart) {}
 
 void DisplayUI::attachTFT(Adafruit_ST7735* tft, int blPin){ _tft=tft; _blPin=blPin; }
 void DisplayUI::attachBrightnessSetter(std::function<void(uint8_t)> fn){ _setBrightness=fn; }
@@ -1388,26 +1391,78 @@ String DisplayUI::textInput(const char* title, const String& initial, int maxLen
 
 // Wi-Fi flow
 void DisplayUI::wifiScanAndConnectUI(){
+  // Stop BLE advertising to prevent radio conflicts during WiFi operations
+  if (_bleStop) _bleStop();
+  
   _tft->fillScreen(ST77XX_BLACK);
   _tft->setTextSize(1);
   _tft->setCursor(6,8);  _tft->println("Wi-Fi Connect");
   _tft->setCursor(6,22); _tft->println("Scanning...");
 
+  // CRITICAL: Wait for BLE to fully deinitialize before starting WiFi
+  // BLE shutdown includes 500ms delay, but we add extra buffer
+  delay(200);
+  
+  // Configure WiFi/BLE coexistence to prefer WiFi during scan
+  esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
+  
+  // Start WiFi from OFF state
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect(true, true);
-  WiFi.setSleep(false);
-  delay(120);
+  delay(100); // Allow mode change to complete
+  WiFi.setSleep(true); // Required for BLE coexistence
+  delay(200); // Allow WiFi radio to initialize properly
 
-  int n = WiFi.scanNetworks();
-  if (n <= 0) { _tft->setCursor(6,38); _tft->println("No networks found"); delay(800); g_forceHomeFull = true; return; }
+  // Use ASYNC scan to prevent blocking BLE + reduce radio contention
+  int16_t n = WiFi.scanNetworks(true, false, false, 300); // async=true, 300ms/channel
+  if (n == WIFI_SCAN_RUNNING) {
+    // Wait for scan to complete, checking every 100ms to allow BLE to operate
+    uint32_t scanStart = millis();
+    while ((n = WiFi.scanComplete()) == WIFI_SCAN_RUNNING) {
+      if (millis() - scanStart > 15000) { // 15 sec timeout
+        _tft->setCursor(6,38); _tft->println("Scan timeout");
+        WiFi.scanDelete();
+        WiFi.mode(WIFI_OFF);
+        delay(200);
+        esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+        delay(800); 
+        g_forceHomeFull = true;
+        if (_bleRestart) _bleRestart();
+        return;
+      }
+      delay(100); // Let BLE process during scan
+      _tft->setCursor(6,38); _tft->print(".");
+    }
+  }
+  
+  if (n <= 0) { 
+    _tft->setCursor(6,38); 
+    _tft->println("No networks found"); 
+    WiFi.scanDelete();
+    WiFi.mode(WIFI_OFF);
+    delay(200);
+    esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+    delay(800); 
+    g_forceHomeFull = true;
+    if (_bleRestart) _bleRestart();
+    return; 
+  }
 
   static String ss; static char sbuf[33];
   auto getter = [&](int i)->const char*{ ss = WiFi.SSID(i); ss.toCharArray(sbuf, sizeof(sbuf)); return sbuf; };
   int pick = listPickerDynamic("Choose SSID", getter, n, 0);
-  if (pick < 0) { g_forceHomeFull = true; return; }
+  if (pick < 0) { 
+    WiFi.scanDelete(); 
+    WiFi.mode(WIFI_OFF);
+    delay(200);
+    esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+    g_forceHomeFull = true; 
+    if (_bleRestart) _bleRestart(); 
+    return; 
+  }
 
   String ssid = WiFi.SSID(pick);
   bool open = (WiFi.encryptionType(pick) == WIFI_AUTH_OPEN);
+  WiFi.scanDelete(); // Free scan results after extracting needed info
 
   String pass;
   if (!open) pass = textInput("Password", "", 63, "abc/ABC/123/sym  OK=sel  BACK=del");
@@ -1418,7 +1473,11 @@ void DisplayUI::wifiScanAndConnectUI(){
   WiFi.begin(ssid.c_str(), pass.c_str());
 
   uint32_t start = millis(); int y=28;
-  while (WiFi.status()!=WL_CONNECTED && millis()-start < 15000) { _tft->setCursor(6,y); _tft->print("."); delay(200); }
+  while (WiFi.status()!=WL_CONNECTED && millis()-start < 15000) { 
+    _tft->setCursor(6,y); 
+    _tft->print("."); 
+    delay(100); // Reduced from 200ms for better BLE coexistence
+  }
 
   if (WiFi.status()==WL_CONNECTED) {
     if (_prefs){ _prefs->putString(_kSsid, ssid); _prefs->putString(_kPass, pass); }
@@ -1428,7 +1487,19 @@ void DisplayUI::wifiScanAndConnectUI(){
     _tft->setCursor(6,y+12); _tft->println("Failed.");
     delay(700);
   }
+  
+  // Shut down WiFi to free antenna for BLE
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  delay(200); // Ensure WiFi fully shuts down
+  
+  // Restore balanced coexistence for BLE operations
+  esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+  
   g_forceHomeFull = true;
+  
+  // Restart BLE advertising after WiFi operations complete
+  if (_bleRestart) _bleRestart();
 }
 
 void DisplayUI::wifiForget(){
@@ -1445,6 +1516,9 @@ void DisplayUI::wifiForget(){
 
 // OTA
 void DisplayUI::runOta(){
+  // Stop BLE advertising to prevent radio conflicts during WiFi/OTA operations
+  if (_bleStop) _bleStop();
+  
   _tft->fillScreen(ST77XX_BLACK);
   _tft->setTextSize(1);
   _tft->setCursor(6,10); _tft->println("OTA Update");
@@ -1499,11 +1573,24 @@ void DisplayUI::runOta(){
 
   // Use default repo from build flag OTA_REPO; pass nullptr to use fallback
   bool ok = Ota::updateFromGithubLatest(nullptr, cb);
+  
   if (!ok) {
     _tft->setCursor(6,92); _tft->println("OTA failed");
+    
+    // Shut down WiFi to free antenna for BLE
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    delay(200);
+    
+    // Restore balanced coexistence for BLE operations
+    esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+    
     delay(900);
     g_forceHomeFull = true;
+    // Restart BLE after failed OTA
+    if (_bleRestart) _bleRestart();
   }
+  // Note: If OTA succeeds, device will reboot - no need to restart BLE or shut down WiFi
 }
 
 // ================================================================
