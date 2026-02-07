@@ -42,16 +42,17 @@ When your device won't accept OTA updates after being powered off:
 1. **Power off** the device
 2. **Hold BACK button**
 3. **Power on** (keep holding BACK)
-4. Hold for **5 seconds** until device restarts
-5. Display shows **"RECOVERY MODE"**
-6. Press **OK** to start OTA (or wait 10 seconds)
-7. Device downloads latest firmware from GitHub
-8. Device automatically reboots to updated firmware
+4. Display shows **"RECOVERY MODE..."** with countdown (5, 4, 3, 2, 1)
+5. Keep holding until countdown reaches 0
+6. Display shows **"ENTERING RECOVERY"** and device restarts
+7. Press **OK** to start OTA (or wait 10 seconds)
+8. Device downloads latest firmware from GitHub
+9. Device automatically reboots to updated firmware
 
 ## What Each Button Does During Boot
 
 - **No button**: Normal boot - full application starts
-- **BACK ≥ 5 sec**: Factory recovery mode - minimal OTA-only firmware for device recovery
+- **BACK held**: Factory recovery mode triggered after 5-second countdown (visible on screen)
 
 ## Files Created
 

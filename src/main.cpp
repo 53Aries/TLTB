@@ -302,40 +302,83 @@ void setup() {
   pinMode(PIN_ENC_OK,   INPUT_PULLUP); // OK: idle HIGH (~3V3), pressed LOW
   pinMode(PIN_ENC_BACK, INPUT_PULLUP);
 
-  // Factory recovery boot detection: BACK button held during power-on for 5 seconds
-  // Boots to factory partition for OTA recovery when main partitions are corrupted
+  // Factory recovery boot detection: BACK button held during power-on
+  // Simple UX: just hold BACK when powering on, device shows countdown, then boots to factory after 5 sec
   delay(5);
   if (digitalRead(PIN_ENC_BACK) == LOW) {
-    uint32_t holdStart = millis();
+    // Initialize display for countdown feedback
+    pinMode(PIN_TFT_RST, OUTPUT);
+    digitalWrite(PIN_TFT_RST, HIGH); delay(50);
+    digitalWrite(PIN_TFT_RST, LOW);  delay(120);
+    digitalWrite(PIN_TFT_RST, HIGH); delay(150);
     
-    // Wait for release or 5 second timeout
-    while (digitalRead(PIN_ENC_BACK) == LOW) {
-      if (millis() - holdStart >= 5000) {
-        // Recovery mode: boot to factory partition
-        // This allows OTA updates even if both OTA partitions are corrupted
-        const esp_partition_t* factory = esp_partition_find_first(
-          ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, "factory");
-        
-        if (factory) {
-          Serial.println("\n=== FACTORY RECOVERY MODE ===");
-          Serial.printf("Booting to factory partition at 0x%x\n", factory->address);
-          
-          esp_err_t err = esp_ota_set_boot_partition(factory);
-          if (err == ESP_OK) {
-            delay(100); // Allow serial to flush
-            ESP.restart();
-          } else {
-            Serial.printf("Failed to set factory partition: %d\n", err);
-          }
-        } else {
-          Serial.println("Factory partition not found - please flash factory firmware");
-        }
-        
-        // If we get here, recovery failed - continue normal boot
+    SPI.begin(PIN_FSPI_SCK, PIN_FSPI_MISO, PIN_FSPI_MOSI, PIN_TFT_CS);
+    Adafruit_ST7735 tft(&SPI, PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST);
+    tft.setSPISpeed(8000000UL);
+    tft.initR(INITR_BLACKTAB);
+    tft.setRotation(3);
+    tft.fillScreen(ST77XX_BLACK);
+    tft.setTextColor(ST77XX_YELLOW);
+    tft.setTextSize(2);
+    tft.setCursor(10, 50);
+    tft.println("RECOVERY");
+    tft.setCursor(10, 70);
+    tft.println("MODE...");
+    
+    uint32_t holdStart = millis();
+    bool triggered = false;
+    
+    // Show countdown while button held
+    while (digitalRead(PIN_ENC_BACK) == LOW && (millis() - holdStart) < 5000) {
+      uint32_t elapsed = millis() - holdStart;
+      uint8_t secsLeft = 5 - (elapsed / 1000);
+      
+      // Update countdown display every 500ms
+      if ((elapsed % 500) < 50) {
+        tft.fillRect(70, 100, 20, 20, ST77XX_BLACK);
+        tft.setTextSize(3);
+        tft.setCursor(70, 100);
+        tft.print(secsLeft);
+      }
+      
+      if (elapsed >= 5000) {
+        triggered = true;
         break;
       }
       delay(10);
     }
+    
+    if (triggered) {
+      // Boot to factory partition for OTA recovery
+      const esp_partition_t* factory = esp_partition_find_first(
+        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, "factory");
+      
+      if (factory) {
+        tft.fillScreen(ST77XX_BLACK);
+        tft.setTextColor(ST77XX_GREEN);
+        tft.setTextSize(2);
+        tft.setCursor(10, 60);
+        tft.println("ENTERING");
+        tft.setCursor(10, 80);
+        tft.println("RECOVERY");
+        
+        Serial.println("\n=== FACTORY RECOVERY MODE ===");
+        Serial.printf("Booting to factory partition at 0x%x\n", factory->address);
+        
+        esp_err_t err = esp_ota_set_boot_partition(factory);
+        if (err == ESP_OK) {
+          delay(500); // Show confirmation message
+          ESP.restart();
+        } else {
+          Serial.printf("Failed to set factory partition: %d\n", err);
+        }
+      } else {
+        Serial.println("Factory partition not found - please flash factory firmware");
+      }
+    }
+    
+    // If we get here, user released button early or recovery failed
+    // Continue with normal boot (display will be re-initialized below)
   }
 
   attachInterrupt(digitalPinToInterrupt(PIN_ENC_A), enc_isrA, RISING);

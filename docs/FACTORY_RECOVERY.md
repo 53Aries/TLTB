@@ -43,7 +43,10 @@ The ESP32 flash is divided into multiple partitions:
 
 **At device power-on:**
 - **No button**: Normal boot - starts main application firmware
-- **Hold BACK button ≥ 5 sec**: Factory recovery mode - boots minimal recovery firmware for OTA updates
+- **Hold BACK button**: Display shows countdown (5 seconds), then boots to factory recovery mode
+  - Visual feedback: "RECOVERY MODE..." with countdown timer
+  - Release button early to cancel and continue normal boot
+  - Keep holding through countdown to enter recovery mode
 
 When in factory recovery mode:
 - Display shows "RECOVERY MODE" 
