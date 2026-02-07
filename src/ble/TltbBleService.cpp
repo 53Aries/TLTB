@@ -117,8 +117,9 @@ void TltbBleService::begin(const char* deviceName, const BleCallbacks& callbacks
     return;
   }
 
+  _deviceName = deviceName && deviceName[0] ? deviceName : "TLTB Controller";
   _callbacks = callbacks;
-  NimBLEDevice::init(deviceName && deviceName[0] ? deviceName : "TLTB Controller");
+  NimBLEDevice::init(_deviceName.c_str());
   Serial.println("[BLE] NimBLE initialized");
   
   // Set preferred MTU to 512 bytes (max BLE supports) for large status notifications
@@ -167,7 +168,7 @@ void TltbBleService::begin(const char* deviceName, const BleCallbacks& callbacks
   advertising->start();
 
   _initialized = true;
-  ESP_LOGI(kBleLogTag, "BLE service ready (name=%s)", deviceName && deviceName[0] ? deviceName : "TLTB Controller");
+  ESP_LOGI(kBleLogTag, "BLE service ready (name=%s)", _deviceName.c_str());
   Serial.println("[BLE] Advertising started");
 }
 
@@ -284,6 +285,51 @@ void TltbBleService::restartAdvertising() {
   }
   ESP_LOGI(kBleLogTag, "Restarting BLE advertising after WiFi operations");
   NimBLEDevice::startAdvertising();
+}
+
+void TltbBleService::shutdownForOta() {
+  if (!_initialized) {
+    return;
+  }
+  
+  ESP_LOGI(kBleLogTag, "Shutting down BLE completely for OTA operations");
+  
+  // Save initialization state
+  _wasInitialized = _initialized;
+  
+  // Stop advertising
+  NimBLEDevice::stopAdvertising();
+  
+  // Disconnect all clients
+  if (_server) {
+    _server->disconnect(0xFF);
+    delay(100);
+  }
+  
+  // Deinitialize NimBLE to free radio for WiFi
+  NimBLEDevice::deinit(true);  // true = release all resources
+  
+  _initialized = false;
+  _connected = false;
+  _server = nullptr;
+  _statusChar = nullptr;
+  
+  delay(200); // Allow BLE stack to fully shut down
+  ESP_LOGI(kBleLogTag, "BLE shutdown complete");
+}
+
+void TltbBleService::restartAfterOta() {
+  if (!_wasInitialized) {
+    return;
+  }
+  
+  ESP_LOGI(kBleLogTag, "Reinitializing BLE after OTA operations");
+  
+  // Reinitialize with saved callbacks and device name
+  begin(_deviceName.c_str(), _callbacks);
+  
+  _wasInitialized = false;
+  ESP_LOGI(kBleLogTag, "BLE restarted successfully");
 }
 
 void TltbBleService::handleControlWrite(const std::string& value) {

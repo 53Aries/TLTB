@@ -38,6 +38,8 @@ public:
   void requestImmediateStatus();
   void stopAdvertising();
   void restartAdvertising();
+  void shutdownForOta();     // Complete BLE shutdown for WiFi OTA operations
+  void restartAfterOta();    // Reinitialize BLE after OTA
   bool isConnected() const { return _connected; }
 
 private:
@@ -55,4 +57,8 @@ private:
   BleCallbacks _callbacks{};
   NimBLEServer* _server = nullptr;
   NimBLECharacteristic* _statusChar = nullptr;
+  
+  // Saved state for OTA restart
+  String _deviceName;
+  bool _wasInitialized = false;
 };
