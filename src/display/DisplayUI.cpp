@@ -1464,6 +1464,12 @@ void DisplayUI::wifiScanAndConnectUI(){
     _tft->setCursor(6,y+12); _tft->println("Failed.");
     delay(700);
   }
+  
+  // Shut down WiFi to free antenna for BLE
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  delay(100);
+  
   g_forceHomeFull = true;
   
   // Restart BLE advertising after WiFi operations complete
@@ -1541,14 +1547,21 @@ void DisplayUI::runOta(){
 
   // Use default repo from build flag OTA_REPO; pass nullptr to use fallback
   bool ok = Ota::updateFromGithubLatest(nullptr, cb);
+  
   if (!ok) {
     _tft->setCursor(6,92); _tft->println("OTA failed");
+    
+    // Shut down WiFi to free antenna for BLE
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    delay(100);
+    
     delay(900);
     g_forceHomeFull = true;
     // Restart BLE after failed OTA
     if (_bleRestart) _bleRestart();
   }
-  // Note: If OTA succeeds, device will reboot - no need to restart BLE
+  // Note: If OTA succeeds, device will reboot - no need to restart BLE or shut down WiFi
 }
 
 // ================================================================

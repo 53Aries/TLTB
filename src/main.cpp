@@ -588,22 +588,11 @@ void setup() {
   g_bleService.begin("TLTB Controller", bleCallbacks);
   Serial.println("[APP] BLE begin invoked");
 
-  // Initialize WiFi AFTER BLE for better coexistence
-  // Enable WiFi/BLE coexistence to prevent radio conflicts and reboots
-  esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
-  delay(100); // Allow BLE to stabilize before WiFi starts
-  
-  {
-    String ssid = prefs.getString(KEY_WIFI_SSID, "");
-    if (ssid.length()) {
-      String pass = prefs.getString(KEY_WIFI_PASS, "");
-      Serial.println("[APP] Starting WiFi...");
-      WiFi.mode(WIFI_STA);
-      WiFi.setSleep(true); // Required for BLE coexistence
-      WiFi.begin(ssid.c_str(), pass.c_str());
-      Serial.printf("[APP] WiFi connecting to: %s\n", ssid.c_str());
-    }
-  }
+  // WiFi is NOT initialized at startup - it starts only when needed (OTA or WiFi scan)
+  // This gives BLE full antenna access for maximum reliability
+  // WiFi/BLE coexistence is configured when WiFi starts in Ota.cpp
+  Serial.println("[APP] WiFi disabled - BLE has full antenna access");
+  Serial.println("[APP] WiFi will start automatically when OTA update is triggered");
 }
 
 void loop() {

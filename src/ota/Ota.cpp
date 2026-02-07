@@ -7,6 +7,7 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <Update.h>
+#include "esp_coexist.h"
 #include "prefs.hpp"
 
 namespace Ota {
@@ -15,38 +16,50 @@ static void status(const Callbacks& cb, const char* s){ if (cb.onStatus) cb.onSt
 static void progress(const Callbacks& cb, size_t w, size_t t){ if (cb.onProgress) cb.onProgress(w,t); }
 
 bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
-  // CRITICAL: Ensure clean WiFi state after BLE shutdown
-  // Reconnect WiFi to clear any radio interference from BLE
-  bool wasConnected = (WiFi.status() == WL_CONNECTED);
-  if (wasConnected) {
-    status(cb, "Preparing WiFi...");
-    String savedSSID = WiFi.SSID();
-    String savedPass = WiFi.psk();
-    
-    // Disconnect and reconnect for clean radio state
-    WiFi.disconnect(true);
-    delay(100);
-    WiFi.mode(WIFI_STA);
-    WiFi.setSleep(true);  // Required for BLE coexistence
-    WiFi.begin(savedSSID.c_str(), savedPass.c_str());
-    
-    // Wait for reconnection
-    int timeout = 15;
-    while (WiFi.status() != WL_CONNECTED && timeout > 0) {
-      delay(1000);
-      timeout--;
-    }
-    
-    if (WiFi.status() != WL_CONNECTED) {
-      status(cb, "WiFi reconnect failed");
-      return false;
-    }
-    status(cb, "WiFi ready");
-    delay(500);  // Allow connection to stabilize
-  } else {
-    status(cb, "Wi-Fi not connected"); 
-    return false; 
+  // WiFi is OFF by default - start it now using saved credentials
+  // Enable WiFi/BLE coexistence (though BLE is shut down during OTA)
+  esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
+  
+  status(cb, "Starting WiFi...");
+  
+  // Get saved WiFi credentials from NVS
+  Preferences prefs;
+  prefs.begin(NVS_NS, true);  // read-only
+  String ssid = prefs.getString(KEY_SSID, "");
+  String pass = prefs.getString(KEY_PASS, "");
+  prefs.end();
+  
+  if (ssid.length() == 0) {
+    status(cb, "No WiFi credentials");
+    status(cb, "Configure in menu first");
+    return false;
   }
+  
+  // Start WiFi from OFF state
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(true);  // Lower power mode
+  delay(100);
+  
+  WiFi.begin(ssid.c_str(), pass.c_str());
+  Serial.printf("[OTA] Connecting to WiFi: %s\n", ssid.c_str());
+  
+  // Wait for connection
+  int timeout = 15;
+  while (WiFi.status() != WL_CONNECTED && timeout > 0) {
+    status(cb, "Connecting...");
+    delay(1000);
+    timeout--;
+  }
+  
+  if (WiFi.status() != WL_CONNECTED) {
+    status(cb, "WiFi connection failed");
+    WiFi.mode(WIFI_OFF);  // Turn off WiFi on failure
+    return false;
+  }
+  
+  Serial.printf("[OTA] WiFi connected: %s\n", WiFi.localIP().toString().c_str());
+  status(cb, "WiFi connected");
+  delay(300);  // Allow connection to stabilize
 
   // 1) Get latest release info from GitHub API
   const char* r = repo && repo[0] ? repo : OTA_REPO;
