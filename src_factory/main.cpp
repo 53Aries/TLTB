@@ -228,6 +228,16 @@ void setup() {
   pinMode(PIN_RELAY_AUX, OUTPUT);    digitalWrite(PIN_RELAY_AUX, HIGH);
   pinMode(PIN_RELAY_ENABLE, OUTPUT); digitalWrite(PIN_RELAY_ENABLE, HIGH);
   
+  // CRITICAL: Reset boot partition to OTA_0 immediately on factory entry
+  // This ensures we never get stuck in factory mode after power cycle
+  // If OTA succeeds, Update.end() will set the new partition as boot
+  const esp_partition_t* ota0 = esp_partition_find_first(
+    ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
+  if (ota0) {
+    esp_ota_set_boot_partition(ota0);
+    Serial.println("[Factory] Boot partition reset to OTA_0 for safety");
+  }
+  
   Serial.begin(115200);
   delay(100);
   
@@ -323,6 +333,12 @@ void setup() {
       // Wait for button press
       while (true) {
         if (digitalRead(PIN_ENC_BACK) == LOW) {
+          // Reset boot partition before restarting
+          const esp_partition_t* ota0 = esp_partition_find_first(
+            ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
+          if (ota0) {
+            esp_ota_set_boot_partition(ota0);
+          }
           ESP.restart();
         }
         delay(100);
@@ -334,6 +350,12 @@ void setup() {
     // Wait for button press
     while (true) {
       if (digitalRead(PIN_ENC_BACK) == LOW) {
+        // Reset boot partition before restarting
+        const esp_partition_t* ota0 = esp_partition_find_first(
+          ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
+        if (ota0) {
+          esp_ota_set_boot_partition(ota0);
+        }
         ESP.restart();
       }
       delay(100);
