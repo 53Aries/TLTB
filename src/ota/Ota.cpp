@@ -20,7 +20,8 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     return false; 
   }
 
-  WiFi.setSleep(false);
+  // Enable WiFi sleep for BLE coexistence (required by ESP32 when both are active)
+  WiFi.setSleep(true);
   delay(100);
 
   // 1) Get latest release info from GitHub API

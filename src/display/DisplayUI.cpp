@@ -1400,7 +1400,7 @@ void DisplayUI::wifiScanAndConnectUI(){
 
   WiFi.mode(WIFI_STA);
   WiFi.disconnect(true, true);
-  WiFi.setSleep(false);
+  WiFi.setSleep(true); // Required for BLE coexistence
   delay(120);
 
   // Use ASYNC scan to prevent blocking BLE + reduce radio contention

@@ -582,7 +582,7 @@ void setup() {
       String pass = prefs.getString(KEY_WIFI_PASS, "");
       Serial.println("[APP] Starting WiFi...");
       WiFi.mode(WIFI_STA);
-      WiFi.setSleep(false);
+      WiFi.setSleep(true); // Required for BLE coexistence
       WiFi.begin(ssid.c_str(), pass.c_str());
       Serial.printf("[APP] WiFi connecting to: %s\n", ssid.c_str());
     }
