@@ -1398,16 +1398,41 @@ void DisplayUI::wifiScanAndConnectUI(){
   WiFi.setSleep(false);
   delay(120);
 
-  int n = WiFi.scanNetworks();
-  if (n <= 0) { _tft->setCursor(6,38); _tft->println("No networks found"); delay(800); g_forceHomeFull = true; return; }
+  // Use ASYNC scan to prevent blocking BLE + reduce radio contention
+  int16_t n = WiFi.scanNetworks(true, false, false, 300); // async=true, 300ms/channel
+  if (n == WIFI_SCAN_RUNNING) {
+    // Wait for scan to complete, checking every 100ms to allow BLE to operate
+    uint32_t scanStart = millis();
+    while ((n = WiFi.scanComplete()) == WIFI_SCAN_RUNNING) {
+      if (millis() - scanStart > 15000) { // 15 sec timeout
+        _tft->setCursor(6,38); _tft->println("Scan timeout");
+        WiFi.scanDelete();
+        delay(800); 
+        g_forceHomeFull = true; 
+        return;
+      }
+      delay(100); // Let BLE process during scan
+      _tft->setCursor(6,38); _tft->print(".");
+    }
+  }
+  
+  if (n <= 0) { 
+    _tft->setCursor(6,38); 
+    _tft->println("No networks found"); 
+    WiFi.scanDelete();
+    delay(800); 
+    g_forceHomeFull = true; 
+    return; 
+  }
 
   static String ss; static char sbuf[33];
   auto getter = [&](int i)->const char*{ ss = WiFi.SSID(i); ss.toCharArray(sbuf, sizeof(sbuf)); return sbuf; };
   int pick = listPickerDynamic("Choose SSID", getter, n, 0);
-  if (pick < 0) { g_forceHomeFull = true; return; }
+  if (pick < 0) { WiFi.scanDelete(); g_forceHomeFull = true; return; }
 
   String ssid = WiFi.SSID(pick);
   bool open = (WiFi.encryptionType(pick) == WIFI_AUTH_OPEN);
+  WiFi.scanDelete(); // Free scan results after extracting needed info
 
   String pass;
   if (!open) pass = textInput("Password", "", 63, "abc/ABC/123/sym  OK=sel  BACK=del");
@@ -1418,7 +1443,11 @@ void DisplayUI::wifiScanAndConnectUI(){
   WiFi.begin(ssid.c_str(), pass.c_str());
 
   uint32_t start = millis(); int y=28;
-  while (WiFi.status()!=WL_CONNECTED && millis()-start < 15000) { _tft->setCursor(6,y); _tft->print("."); delay(200); }
+  while (WiFi.status()!=WL_CONNECTED && millis()-start < 15000) { 
+    _tft->setCursor(6,y); 
+    _tft->print("."); 
+    delay(100); // Reduced from 200ms for better BLE coexistence
+  }
 
   if (WiFi.status()==WL_CONNECTED) {
     if (_prefs){ _prefs->putString(_kSsid, ssid); _prefs->putString(_kPass, pass); }
