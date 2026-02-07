@@ -25,8 +25,8 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   // Get saved WiFi credentials from NVS
   Preferences prefs;
   prefs.begin(NVS_NS, true);  // read-only
-  String ssid = prefs.getString(KEY_SSID, "");
-  String pass = prefs.getString(KEY_PASS, "");
+  String ssid = prefs.getString(KEY_WIFI_SSID, "");
+  String pass = prefs.getString(KEY_WIFI_PASS, "");
   prefs.end();
   
   if (ssid.length() == 0) {
