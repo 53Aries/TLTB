@@ -61,10 +61,13 @@ jobs:
           echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
         fi
     
-    - name: Rename firmware file
+    - name: Prepare firmware files
       run: |
         mkdir -p release
+        # Copy with version tag for manual downloads
         cp .pio/build/esp32s3-devkitc1/firmware.bin release/TLTB-firmware-${{ steps.set_tag.outputs.tag }}.bin
+        # Copy as firmware.bin for OTA updates
+        cp .pio/build/esp32s3-devkitc1/firmware.bin release/firmware.bin
     
     - name: Create Release
       uses: softprops/action-gh-release@v1
@@ -76,14 +79,17 @@ jobs:
           ## Firmware Release ${{ steps.set_tag.outputs.tag }}
           
           ### OTA Installation
-          1. Download TLTB-firmware-${{ steps.set_tag.outputs.tag }}.bin
-          2. Use the device's built-in OTA update feature
-          3. Or upload via web interface
+          1. Use the device's built-in OTA update feature (automatically downloads firmware.bin)
+          2. Or upload firmware.bin via web interface
           
           ### Manual Flash (if needed)
           ```
           esptool.py --chip esp32s3 --port COM_PORT write_flash 0x10000 TLTB-firmware-${{ steps.set_tag.outputs.tag }}.bin
           ```
+          
+          ### Files
+          - `firmware.bin` - For OTA updates
+          - `TLTB-firmware-${{ steps.set_tag.outputs.tag }}.bin` - For manual flashing
           
           ### Changes
           See commit history for details.

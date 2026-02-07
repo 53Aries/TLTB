@@ -5,7 +5,6 @@
 #include <NimBLEDevice.h>
 #include <esp_gap_ble_api.h>
 #include <esp_log.h>
-#include <mbedtls/base64.h>
 
 #include <cmath>
 #include <cstring>
@@ -16,8 +15,7 @@ constexpr char kStatusCharUuid[] = "0000a11d-0000-1000-8000-00805f9b34fb";
 constexpr char kControlCharUuid[] = "0000a11e-0000-1000-8000-00805f9b34fb";
 constexpr uint32_t kStatusIntervalMs = 1000;
 constexpr size_t kStatusJsonCap = 512;               // ArduinoJson document capacity
-constexpr size_t kStatusPayloadLimit = 200;          // Max JSON bytes (base64: 268, still under 512 MTU)
-constexpr size_t kStatusBase64Cap = ((kStatusPayloadLimit + 2) / 3) * 4 + 4;
+constexpr size_t kStatusPayloadLimit = 200;          // Max JSON bytes for notifications
 constexpr size_t kControlDecodeCap = 256;
 const char* kBleLogTag = "TLTB-BLE";
 
@@ -63,22 +61,6 @@ void setNullableFloat(JsonObject obj, const char* key, float value) {
   }
 }
 
-bool decodeBase64(const std::string& input, uint8_t* buffer, size_t& decodedLen) {
-  if (!buffer) return false;
-  size_t required = 0;
-  int rc = mbedtls_base64_decode(nullptr, 0, &required,
-                                 reinterpret_cast<const unsigned char*>(input.data()), input.size());
-  if (rc != MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL && rc != 0) {
-    return false;
-  }
-  if (required > decodedLen) {
-    return false;
-  }
-  rc = mbedtls_base64_decode(buffer, decodedLen, &decodedLen,
-                             reinterpret_cast<const unsigned char*>(input.data()), input.size());
-  return rc == 0;
-}
-
 }  // namespace
 
 class TltbBleService::ServerCallbacks : public NimBLEServerCallbacks {
@@ -94,6 +76,11 @@ public:
     (void)server;
     _service.handleClientDisconnect();
     NimBLEDevice::startAdvertising();
+  }
+
+  void onMTUChange(uint16_t mtu, ble_gap_conn_desc* desc) override {
+    (void)desc;
+    _service.handleMtuChanged(mtu);
   }
 
 private:
@@ -173,9 +160,12 @@ void TltbBleService::begin(const char* deviceName, const BleCallbacks& callbacks
 }
 
 void TltbBleService::publishStatus(const BleStatusContext& ctx) {
-  if (!_statusChar) {
+  if (!_statusChar || !_connected) {
     return;
   }
+
+  // Don't block status if MTU isn't negotiated yet
+  // The BLE stack will handle fragmentation automatically if needed
 
   const uint32_t now = millis();
   bool due = _forceNextStatus || (_lastNotifyMs == 0) || (now - _lastNotifyMs >= kStatusIntervalMs);
@@ -248,16 +238,8 @@ void TltbBleService::publishStatus(const BleStatusContext& ctx) {
     return;
   }
 
-  unsigned char base64Buffer[kStatusBase64Cap];
-  size_t encodedLen = 0;
-  int rc = mbedtls_base64_encode(base64Buffer, sizeof(base64Buffer), &encodedLen,
-                                 reinterpret_cast<const unsigned char*>(jsonBuffer), jsonLen);
-  if (rc != 0) {
-    ESP_LOGW(kBleLogTag, "Base64 encode failed (%d)", rc);
-    return;
-  }
-
-  _statusChar->setValue(base64Buffer, encodedLen);
+  // Send raw JSON bytes - react-native-ble-plx will base64-encode for the app
+  _statusChar->setValue(reinterpret_cast<const uint8_t*>(jsonBuffer), jsonLen);
   _statusChar->notify();
 }
 
@@ -297,6 +279,8 @@ void TltbBleService::shutdownForOta() {
   // Save initialization state
   _wasInitialized = _initialized;
   _connected = false;
+  _mtuNegotiated = false;
+  _negotiatedMtu = 23;
   
   // Stop advertising first
   NimBLEDevice::stopAdvertising();
@@ -341,48 +325,30 @@ void TltbBleService::handleControlWrite(const std::string& value) {
 
   ESP_LOGI(kBleLogTag, "Control write received (%u bytes)", static_cast<unsigned>(value.size()));
 
-  uint8_t decoded[kControlDecodeCap];
-  size_t decodedLen = sizeof(decoded);
-  if (!decodeBase64(value, decoded, decodedLen)) {
-    ESP_LOGW(kBleLogTag, "Failed to decode control payload");
-    return;
-  }
-
-  ESP_LOGI(kBleLogTag, "Decoded %u bytes", static_cast<unsigned>(decodedLen));
-
-  // Log the actual decoded JSON string
-  char jsonStr[kControlDecodeCap + 1];
-  memcpy(jsonStr, decoded, decodedLen);
-  jsonStr[decodedLen] = '\0';
-  ESP_LOGI(kBleLogTag, "Decoded JSON: %s", jsonStr);
-
+  // The React Native BLE PLX library decodes base64 before sending,
+  // so we receive the raw JSON bytes directly - no base64 decoding needed!
   StaticJsonDocument<kControlDecodeCap> doc;
-  DeserializationError err = deserializeJson(doc, decoded, decodedLen);
+  DeserializationError err = deserializeJson(doc, value);
   if (err) {
     ESP_LOGW(kBleLogTag, "Control JSON parse error: %s", err.c_str());
     return;
   }
 
   const char* type = doc["type"].as<const char*>();
-  ESP_LOGI(kBleLogTag, "Command type: %s", type ? type : "null");
   
   if (type && strcmp(type, "relay") == 0) {
     const char* relayId = doc["relayId"].as<const char*>();
     bool desiredState = doc["state"].as<bool>();
-    ESP_LOGI(kBleLogTag, "Relay command: %s -> %s", relayId ? relayId : "null", desiredState ? "ON" : "OFF");
     RelayIndex idx;
     if (relayId && relayIndexFromId(relayId, idx)) {
-      ESP_LOGI(kBleLogTag, "Relay index: %d, has callback: %s", (int)idx, _callbacks.onRelayCommand ? "yes" : "no");
       if (_callbacks.onRelayCommand) {
         _callbacks.onRelayCommand(idx, desiredState);
-        ESP_LOGI(kBleLogTag, "Relay command executed");
       }
     } else {
       ESP_LOGW(kBleLogTag, "Invalid relay ID: %s", relayId ? relayId : "null");
     }
     requestImmediateStatus();
   } else if (type && strcmp(type, "refresh") == 0) {
-    ESP_LOGI(kBleLogTag, "Refresh command received");
     if (_callbacks.onRefreshRequest) {
       _callbacks.onRefreshRequest();
     }
@@ -393,10 +359,25 @@ void TltbBleService::handleControlWrite(const std::string& value) {
 void TltbBleService::handleClientConnect(NimBLEServer* server) {
   (void)server;
   _connected = true;
-  // MTU negotiation happens automatically via NimBLEDevice::setMTU() during init
-  ESP_LOGI(kBleLogTag, "Client connected, MTU negotiation will occur automatically");
+  _mtuNegotiated = false;  // Reset on new connection
+  _negotiatedMtu = 23;     // Default until negotiation completes
+  ESP_LOGI(kBleLogTag, "Client connected, waiting for MTU negotiation");
 }
 
 void TltbBleService::handleClientDisconnect() {
   _connected = false;
+  _mtuNegotiated = false;
+  _negotiatedMtu = 23;
+}
+
+void TltbBleService::handleMtuChanged(uint16_t mtu) {
+  _negotiatedMtu = mtu;
+  _mtuNegotiated = true;
+  ESP_LOGI(kBleLogTag, "MTU negotiated: %d bytes (payload capacity: %d bytes)", 
+           mtu, mtu - 3);
+  
+  // If we have a pending status notification, trigger it now
+  if (_forceNextStatus) {
+    ESP_LOGI(kBleLogTag, "MTU ready, will send deferred status notification");
+  }
 }

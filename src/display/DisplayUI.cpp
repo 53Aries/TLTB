@@ -16,6 +16,7 @@
 #include <HTTPClient.h>
 #include <Update.h>
 #include <ArduinoJson.h>
+#include "esp_coexist.h"
 #include "ota/Ota.hpp"
 
 // ================== NEW: force full home repaint flag ==================
@@ -1398,10 +1399,18 @@ void DisplayUI::wifiScanAndConnectUI(){
   _tft->setCursor(6,8);  _tft->println("Wi-Fi Connect");
   _tft->setCursor(6,22); _tft->println("Scanning...");
 
+  // CRITICAL: Wait for BLE to fully deinitialize before starting WiFi
+  // BLE shutdown includes 500ms delay, but we add extra buffer
+  delay(200);
+  
+  // Configure WiFi/BLE coexistence to prefer WiFi during scan
+  esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
+  
+  // Start WiFi from OFF state
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect(true, true);
+  delay(100); // Allow mode change to complete
   WiFi.setSleep(true); // Required for BLE coexistence
-  delay(120);
+  delay(200); // Allow WiFi radio to initialize properly
 
   // Use ASYNC scan to prevent blocking BLE + reduce radio contention
   int16_t n = WiFi.scanNetworks(true, false, false, 300); // async=true, 300ms/channel
@@ -1412,6 +1421,9 @@ void DisplayUI::wifiScanAndConnectUI(){
       if (millis() - scanStart > 15000) { // 15 sec timeout
         _tft->setCursor(6,38); _tft->println("Scan timeout");
         WiFi.scanDelete();
+        WiFi.mode(WIFI_OFF);
+        delay(200);
+        esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
         delay(800); 
         g_forceHomeFull = true;
         if (_bleRestart) _bleRestart();
@@ -1426,6 +1438,9 @@ void DisplayUI::wifiScanAndConnectUI(){
     _tft->setCursor(6,38); 
     _tft->println("No networks found"); 
     WiFi.scanDelete();
+    WiFi.mode(WIFI_OFF);
+    delay(200);
+    esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
     delay(800); 
     g_forceHomeFull = true;
     if (_bleRestart) _bleRestart();
@@ -1435,7 +1450,15 @@ void DisplayUI::wifiScanAndConnectUI(){
   static String ss; static char sbuf[33];
   auto getter = [&](int i)->const char*{ ss = WiFi.SSID(i); ss.toCharArray(sbuf, sizeof(sbuf)); return sbuf; };
   int pick = listPickerDynamic("Choose SSID", getter, n, 0);
-  if (pick < 0) { WiFi.scanDelete(); g_forceHomeFull = true; if (_bleRestart) _bleRestart(); return; }
+  if (pick < 0) { 
+    WiFi.scanDelete(); 
+    WiFi.mode(WIFI_OFF);
+    delay(200);
+    esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+    g_forceHomeFull = true; 
+    if (_bleRestart) _bleRestart(); 
+    return; 
+  }
 
   String ssid = WiFi.SSID(pick);
   bool open = (WiFi.encryptionType(pick) == WIFI_AUTH_OPEN);
@@ -1468,7 +1491,10 @@ void DisplayUI::wifiScanAndConnectUI(){
   // Shut down WiFi to free antenna for BLE
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
-  delay(100);
+  delay(200); // Ensure WiFi fully shuts down
+  
+  // Restore balanced coexistence for BLE operations
+  esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
   
   g_forceHomeFull = true;
   
@@ -1554,7 +1580,10 @@ void DisplayUI::runOta(){
     // Shut down WiFi to free antenna for BLE
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
-    delay(100);
+    delay(200);
+    
+    // Restore balanced coexistence for BLE operations
+    esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
     
     delay(900);
     g_forceHomeFull = true;

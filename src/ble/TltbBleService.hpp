@@ -49,9 +49,12 @@ private:
   void handleControlWrite(const std::string& value);
   void handleClientConnect(NimBLEServer* server);
   void handleClientDisconnect();
+  void handleMtuChanged(uint16_t mtu);
 
   bool _initialized = false;
   bool _connected = false;
+  bool _mtuNegotiated = false;
+  uint16_t _negotiatedMtu = 23;  // Default BLE MTU
   bool _forceNextStatus = false;
   uint32_t _lastNotifyMs = 0;
   BleCallbacks _callbacks{};

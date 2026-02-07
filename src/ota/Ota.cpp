@@ -8,6 +8,7 @@
 #include <Preferences.h>
 #include <Update.h>
 #include "esp_coexist.h"
+#include "esp_ota_ops.h"
 #include "prefs.hpp"
 
 namespace Ota {
@@ -16,6 +17,32 @@ static void status(const Callbacks& cb, const char* s){ if (cb.onStatus) cb.onSt
 static void progress(const Callbacks& cb, size_t w, size_t t){ if (cb.onProgress) cb.onProgress(w,t); }
 
 bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
+  // Log current partition state for diagnostics
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  const esp_partition_t* update_partition = esp_ota_get_next_update_partition(NULL);
+  
+  if (running) {
+    Serial.printf("[OTA] Currently running from: %s (type=%d, subtype=%d, addr=0x%x, size=%d)\n",
+      running->label, running->type, running->subtype, running->address, running->size);
+  }
+  
+  if (update_partition) {
+    Serial.printf("[OTA] Will update to: %s (type=%d, subtype=%d, addr=0x%x, size=%d)\n",
+      update_partition->label, update_partition->type, update_partition->subtype, 
+      update_partition->address, update_partition->size);
+  } else {
+    status(cb, "No OTA partition available");
+    return false;
+  }
+  
+  // Check OTA data partition state
+  esp_ota_img_states_t ota_state;
+  if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK) {
+    Serial.printf("[OTA] Current partition state: %d\n", ota_state);
+    // States: ESP_OTA_IMG_VALID=0, ESP_OTA_IMG_PENDING_VERIFY=1, 
+    //         ESP_OTA_IMG_INVALID=2, ESP_OTA_IMG_ABORTED=3, ESP_OTA_IMG_NEW=4
+  }
+  
   // WiFi is OFF by default - start it now using saved credentials
   // Enable WiFi/BLE coexistence (though BLE is shut down during OTA)
   esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
@@ -102,7 +129,8 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     for (JsonObject a : doc["assets"].as<JsonArray>()) {
       const char* name = a["name"] | "";
       const char* url  = a["browser_download_url"] | "";
-      if (name && url && strstr(name, ".bin")) { 
+      // Look specifically for "firmware.bin" to avoid GitHub's auto-generated files
+      if (name && url && strcmp(name, "firmware.bin") == 0) { 
         assetUrl = url; 
         char nameBuf[48];
         snprintf(nameBuf, sizeof(nameBuf), "Found: %.40s", name);
@@ -159,13 +187,26 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   // 4) Flash using Arduino Update library
   WiFiClient* stream = http2.getStreamPtr();
   
-  if (!Update.begin(contentLen)) {
+  // Clear any previous update errors
+  Update.abort();
+  delay(100);
+  
+  // Begin update with explicit app type and size
+  // U_FLASH = 0 (app update to OTA partition)
+  if (!Update.begin(contentLen, U_FLASH)) {
     char buf[48];
     snprintf(buf, sizeof(buf), "Update.begin fail: %d", Update.getError());
     status(cb, buf);
+    Serial.printf("[OTA] Update.begin() failed - error: %d\n", Update.getError());
+    Serial.printf("[OTA] Error string: %s\n", Update.errorString());
     http2.end();
     return false;
   }
+  
+  // Log which partition we're updating to
+  Serial.printf("[OTA] Writing to partition: %s\n", 
+    Update.isRunning() ? "OTA partition" : "unknown");
+  Serial.printf("[OTA] Target partition size: %u bytes\n", Update.size());
   
   status(cb, "Writing...");
   
@@ -225,17 +266,47 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     char buf[48];
     snprintf(buf, sizeof(buf), "Size mismatch: %u/%d", (unsigned)written, contentLen);
     status(cb, buf);
+    Serial.printf("[OTA] Size mismatch - written: %u, expected: %d\n", (unsigned)written, contentLen);
     Update.abort();
     return false;
   }
 
   Serial.printf("[OTA] Download complete: %u bytes written\n", (unsigned)written);
-  delay(100);  // Allow flash write buffer to settle
+  
+  // CRITICAL: Disconnect WiFi before flash finalization to prevent interference
+  // WiFi activity can cause flash write corruption during validation
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  delay(100);
+  Serial.println("[OTA] WiFi disconnected for flash finalization");
+  
+  // CRITICAL: Allow flash write buffers to fully flush
+  // Flash memory may have internal write cache that needs time to persist
+  delay(500);  // Increased from 100ms to 500ms
+  
+  status(cb, "Verifying...");
+  
+  // Verify Update object state before finalization
+  if (Update.hasError()) {
+    char buf[48];
+    snprintf(buf, sizeof(buf), "Write error detected: %d", Update.getError());
+    status(cb, buf);
+    Serial.printf("[OTA] Error detected during write phase: %d\n", Update.getError());
+    Serial.printf("[OTA] Error string: %s\n", Update.errorString());
+    Update.abort();
+    return false;
+  }
 
   status(cb, "Finalizing...");
   Serial.println("[OTA] Starting Update.end() validation...");
   
-  if (!Update.end(true)) {
+  // Important: Set MD5 checksum if available (currently not provided by GitHub API)
+  // Without MD5, Update.end() will calculate hash of written data and validate format
+  // This can fail if flash write was corrupted or image format is invalid
+  
+  // Call Update.end(false) to validate without immediate reboot
+  // This allows better error handling and diagnostics
+  if (!Update.end(false)) {
     char buf[64];
     int err = Update.getError();
     snprintf(buf, sizeof(buf), "Validation fail: err=%d", err);
@@ -245,10 +316,31 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     if (Update.hasError()) {
       Serial.printf("[OTA] Update error string: %s\n", Update.errorString());
     }
+    
+    // Additional diagnostics
+    Serial.printf("[OTA] Update progress: %u bytes\n", Update.progress());
+    Serial.printf("[OTA] Update size: %u bytes\n", Update.size());
+    Serial.printf("[OTA] Update remaining: %u bytes\n", Update.remaining());
+    
+    // Check if partition is readable after failed write
+    const esp_partition_t* update_part = esp_ota_get_next_update_partition(NULL);
+    if (update_part) {
+      Serial.printf("[OTA] Update partition: %s at 0x%x\n", update_part->label, update_part->address);
+      
+      // Try to verify the partition is accessible
+      uint8_t test_buf[16];
+      if (esp_partition_read(update_part, 0, test_buf, sizeof(test_buf)) == ESP_OK) {
+        Serial.printf("[OTA] Partition readable - first bytes: %02x %02x %02x %02x\n",
+          test_buf[0], test_buf[1], test_buf[2], test_buf[3]);
+      } else {
+        Serial.println("[OTA] ERROR: Cannot read from update partition!");
+      }
+    }
+    
     return false;
   }
 
-  Serial.println("[OTA] Validation passed!");
+  Serial.println("[OTA] Validation passed! Update completed successfully.");
   
   // Save version tag
   if (tagName.length() > 0) {
@@ -256,10 +348,11 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     p.begin(NVS_NS, false); 
     p.putString(KEY_FW_VER, tagName); 
     p.end();
+    Serial.printf("[OTA] Saved version tag: %s\n", tagName.c_str());
   }
 
   status(cb, "OTA OK. Rebooting...");
-  delay(500);
+  delay(1000);  // Give user time to see success message
   ESP.restart();
   return true;
 }

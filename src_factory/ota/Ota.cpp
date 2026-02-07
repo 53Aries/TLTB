@@ -64,7 +64,8 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     for (JsonObject a : doc["assets"].as<JsonArray>()) {
       const char* name = a["name"] | "";
       const char* url  = a["browser_download_url"] | "";
-      if (name && url && strstr(name, ".bin")) { 
+      // Look specifically for "firmware.bin" to avoid GitHub's auto-generated files
+      if (name && url && strcmp(name, "firmware.bin") == 0) { 
         assetUrl = url; 
         char nameBuf[48];
         snprintf(nameBuf, sizeof(nameBuf), "Found: %.40s", name);
