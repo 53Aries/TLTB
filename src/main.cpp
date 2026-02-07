@@ -427,6 +427,8 @@ void setup() {
     .getLvpBypass   = [](){ return protector.lvpBypass(); },
     .setLvpBypass   = [](bool on){ protector.setLvpBypass(on); },
     .getStartupGuard = [](){ return g_startupGuard; },
+    .onBleStop      = [](){ g_bleService.stopAdvertising(); },
+    .onBleRestart   = [](){ g_bleService.restartAdvertising(); },
   });
   ui->attachTFT(tft, PIN_TFT_BL);
   ui->attachBrightnessSetter(setBacklight);

@@ -32,6 +32,10 @@ struct DisplayCtor {
   
   // Startup guard accessor
   std::function<bool()>      getStartupGuard;
+  
+  // BLE control for WiFi coexistence
+  std::function<void()>      onBleStop;
+  std::function<void()>      onBleRestart;
 };
 
 enum FaultBits : uint32_t {
@@ -125,6 +129,8 @@ private:
   std::function<bool()> _getLvpBypass;
   std::function<void(bool)> _setLvpBypass;
   std::function<bool()> _getStartupGuard;
+  std::function<void()> _bleStop;
+  std::function<void()> _bleRestart;
 
   Preferences* _prefs=nullptr;
 

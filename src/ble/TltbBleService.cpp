@@ -258,6 +258,28 @@ void TltbBleService::requestImmediateStatus() {
   _forceNextStatus = true;
 }
 
+void TltbBleService::stopAdvertising() {
+  if (!_initialized) {
+    return;
+  }
+  ESP_LOGI(kBleLogTag, "Stopping BLE advertising for WiFi operations");
+  NimBLEDevice::stopAdvertising();
+  // Disconnect any connected clients
+  if (_server) {
+    _server->disconnect(0xFF); // Disconnect all peers
+  }
+  _connected = false;
+  delay(100); // Allow disconnection to complete
+}
+
+void TltbBleService::restartAdvertising() {
+  if (!_initialized) {
+    return;
+  }
+  ESP_LOGI(kBleLogTag, "Restarting BLE advertising after WiFi operations");
+  NimBLEDevice::startAdvertising();
+}
+
 void TltbBleService::handleControlWrite(const std::string& value) {
   if (value.empty()) {
     ESP_LOGW(kBleLogTag, "Empty control payload");

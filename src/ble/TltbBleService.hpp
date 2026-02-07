@@ -36,6 +36,8 @@ public:
   void begin(const char* deviceName, const BleCallbacks& callbacks);
   void publishStatus(const BleStatusContext& ctx);
   void requestImmediateStatus();
+  void stopAdvertising();
+  void restartAdvertising();
   bool isConnected() const { return _connected; }
 
 private:

@@ -172,7 +172,9 @@ DisplayUI::DisplayUI(const DisplayCtor& c)
   _setOutvBypass(c.setOutvBypass),
   _getLvpBypass(c.getLvpBypass),
   _setLvpBypass(c.setLvpBypass),
-  _getStartupGuard(c.getStartupGuard) {}
+  _getStartupGuard(c.getStartupGuard),
+  _bleStop(c.onBleStop),
+  _bleRestart(c.onBleRestart) {}
 
 void DisplayUI::attachTFT(Adafruit_ST7735* tft, int blPin){ _tft=tft; _blPin=blPin; }
 void DisplayUI::attachBrightnessSetter(std::function<void(uint8_t)> fn){ _setBrightness=fn; }
@@ -1388,6 +1390,9 @@ String DisplayUI::textInput(const char* title, const String& initial, int maxLen
 
 // Wi-Fi flow
 void DisplayUI::wifiScanAndConnectUI(){
+  // Stop BLE advertising to prevent radio conflicts during WiFi operations
+  if (_bleStop) _bleStop();
+  
   _tft->fillScreen(ST77XX_BLACK);
   _tft->setTextSize(1);
   _tft->setCursor(6,8);  _tft->println("Wi-Fi Connect");
@@ -1408,7 +1413,8 @@ void DisplayUI::wifiScanAndConnectUI(){
         _tft->setCursor(6,38); _tft->println("Scan timeout");
         WiFi.scanDelete();
         delay(800); 
-        g_forceHomeFull = true; 
+        g_forceHomeFull = true;
+        if (_bleRestart) _bleRestart();
         return;
       }
       delay(100); // Let BLE process during scan
@@ -1421,14 +1427,15 @@ void DisplayUI::wifiScanAndConnectUI(){
     _tft->println("No networks found"); 
     WiFi.scanDelete();
     delay(800); 
-    g_forceHomeFull = true; 
+    g_forceHomeFull = true;
+    if (_bleRestart) _bleRestart();
     return; 
   }
 
   static String ss; static char sbuf[33];
   auto getter = [&](int i)->const char*{ ss = WiFi.SSID(i); ss.toCharArray(sbuf, sizeof(sbuf)); return sbuf; };
   int pick = listPickerDynamic("Choose SSID", getter, n, 0);
-  if (pick < 0) { WiFi.scanDelete(); g_forceHomeFull = true; return; }
+  if (pick < 0) { WiFi.scanDelete(); g_forceHomeFull = true; if (_bleRestart) _bleRestart(); return; }
 
   String ssid = WiFi.SSID(pick);
   bool open = (WiFi.encryptionType(pick) == WIFI_AUTH_OPEN);
@@ -1458,6 +1465,9 @@ void DisplayUI::wifiScanAndConnectUI(){
     delay(700);
   }
   g_forceHomeFull = true;
+  
+  // Restart BLE advertising after WiFi operations complete
+  if (_bleRestart) _bleRestart();
 }
 
 void DisplayUI::wifiForget(){
@@ -1474,6 +1484,9 @@ void DisplayUI::wifiForget(){
 
 // OTA
 void DisplayUI::runOta(){
+  // Stop BLE advertising to prevent radio conflicts during WiFi/OTA operations
+  if (_bleStop) _bleStop();
+  
   _tft->fillScreen(ST77XX_BLACK);
   _tft->setTextSize(1);
   _tft->setCursor(6,10); _tft->println("OTA Update");
@@ -1532,7 +1545,10 @@ void DisplayUI::runOta(){
     _tft->setCursor(6,92); _tft->println("OTA failed");
     delay(900);
     g_forceHomeFull = true;
+    // Restart BLE after failed OTA
+    if (_bleRestart) _bleRestart();
   }
+  // Note: If OTA succeeds, device will reboot - no need to restart BLE
 }
 
 // ================================================================
