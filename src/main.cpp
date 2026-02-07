@@ -11,6 +11,7 @@
 #include "soc/rtc_cntl_reg.h"  // For brownout detector control
 
 #include <WiFi.h>
+#include "esp_coexist.h"
 
 #include "pins.hpp"
 #include "prefs.hpp"
@@ -304,7 +305,7 @@ void setup() {
   pinMode(PIN_ENC_BACK, INPUT_PULLUP);
 
   // Dev boot detection: BACK button held during power-on
-  // Short press = dev mode, Long press (5s) = boot from other partition (recovery)
+  // Short press = dev mode, Long press (5s) = boot to factory recovery partition
   delay(5);
   if (digitalRead(PIN_ENC_BACK) == LOW) {
     uint32_t holdStart = millis();
@@ -320,17 +321,26 @@ void setup() {
     }
     
     if (longPress) {
-      // Recovery mode: boot from other partition
-      const esp_partition_t* running = esp_ota_get_running_partition();
-      const esp_partition_t* other = esp_ota_get_next_update_partition(running);
-      if (other && other != running) {
-        // Set boot partition to the other one
-        esp_err_t err = esp_ota_set_boot_partition(other);
+      // Recovery mode: boot to factory partition
+      // This allows OTA updates even if both OTA partitions are corrupted
+      const esp_partition_t* factory = esp_partition_find_first(
+        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, "factory");
+      
+      if (factory) {
+        Serial.println("\n=== FACTORY RECOVERY MODE ===");
+        Serial.printf("Booting to factory partition at 0x%x\n", factory->address);
+        
+        esp_err_t err = esp_ota_set_boot_partition(factory);
         if (err == ESP_OK) {
-          // Reboot to other partition
+          delay(100); // Allow serial to flush
           ESP.restart();
+        } else {
+          Serial.printf("Failed to set factory partition: %d\n", err);
         }
+      } else {
+        Serial.println("Factory partition not found - please flash factory firmware");
       }
+      
       // If we get here, recovery failed - fall through to dev mode
       g_devBoot = true;
     } else {
@@ -471,14 +481,10 @@ void setup() {
   }
 
   // Auto-join Wi-Fi (non-blocking)
+  // NOTE: WiFi initialization moved to AFTER BLE init for better coexistence
+  // BLE should start first, then WiFi joins network
   {
-    String ssid = prefs.getString(KEY_WIFI_SSID, "");
-    if (ssid.length()) {
-      String pass = prefs.getString(KEY_WIFI_PASS, "");
-      WiFi.mode(WIFI_STA);
-      WiFi.setSleep(false);
-      WiFi.begin(ssid.c_str(), pass.c_str());
-    }
+    // WiFi initialization deferred - see after BLE init below
   }
 
   // Protector init (loads thresholds)
@@ -562,6 +568,23 @@ void setup() {
   };
   g_bleService.begin("TLTB Controller", bleCallbacks);
   Serial.println("[APP] BLE begin invoked");
+
+  // Initialize WiFi AFTER BLE for better coexistence
+  // Enable WiFi/BLE coexistence to prevent radio conflicts and reboots
+  esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+  delay(100); // Allow BLE to stabilize before WiFi starts
+  
+  {
+    String ssid = prefs.getString(KEY_WIFI_SSID, "");
+    if (ssid.length()) {
+      String pass = prefs.getString(KEY_WIFI_PASS, "");
+      Serial.println("[APP] Starting WiFi...");
+      WiFi.mode(WIFI_STA);
+      WiFi.setSleep(false);
+      WiFi.begin(ssid.c_str(), pass.c_str());
+      Serial.printf("[APP] WiFi connecting to: %s\n", ssid.c_str());
+    }
+  }
 }
 
 void loop() {
