@@ -15,14 +15,38 @@ static void status(const Callbacks& cb, const char* s){ if (cb.onStatus) cb.onSt
 static void progress(const Callbacks& cb, size_t w, size_t t){ if (cb.onProgress) cb.onProgress(w,t); }
 
 bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
-  if (WiFi.status() != WL_CONNECTED) { 
+  // CRITICAL: Ensure clean WiFi state after BLE shutdown
+  // Reconnect WiFi to clear any radio interference from BLE
+  bool wasConnected = (WiFi.status() == WL_CONNECTED);
+  if (wasConnected) {
+    status(cb, "Preparing WiFi...");
+    String savedSSID = WiFi.SSID();
+    String savedPass = WiFi.psk();
+    
+    // Disconnect and reconnect for clean radio state
+    WiFi.disconnect(true);
+    delay(100);
+    WiFi.mode(WIFI_STA);
+    WiFi.setSleep(true);  // Required for BLE coexistence
+    WiFi.begin(savedSSID.c_str(), savedPass.c_str());
+    
+    // Wait for reconnection
+    int timeout = 15;
+    while (WiFi.status() != WL_CONNECTED && timeout > 0) {
+      delay(1000);
+      timeout--;
+    }
+    
+    if (WiFi.status() != WL_CONNECTED) {
+      status(cb, "WiFi reconnect failed");
+      return false;
+    }
+    status(cb, "WiFi ready");
+    delay(500);  // Allow connection to stabilize
+  } else {
     status(cb, "Wi-Fi not connected"); 
     return false; 
   }
-
-  // Enable WiFi sleep for BLE coexistence (required by ESP32 when both are active)
-  WiFi.setSleep(true);
-  delay(100);
 
   // 1) Get latest release info from GitHub API
   const char* r = repo && repo[0] ? repo : OTA_REPO;
@@ -192,15 +216,27 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     return false;
   }
 
+  Serial.printf("[OTA] Download complete: %u bytes written\n", (unsigned)written);
+  delay(100);  // Allow flash write buffer to settle
+
   status(cb, "Finalizing...");
+  Serial.println("[OTA] Starting Update.end() validation...");
   
   if (!Update.end(true)) {
-    char buf[48];
-    snprintf(buf, sizeof(buf), "Update.end fail: %d", Update.getError());
+    char buf[64];
+    int err = Update.getError();
+    snprintf(buf, sizeof(buf), "Validation fail: err=%d", err);
     status(cb, buf);
+    Serial.printf("[OTA] Update.end() failed with error: %d\n", err);
+    Serial.printf("[OTA] Bytes written: %u of %d\n", (unsigned)written, contentLen);
+    if (Update.hasError()) {
+      Serial.printf("[OTA] Update error string: %s\n", Update.errorString());
+    }
     return false;
   }
 
+  Serial.println("[OTA] Validation passed!");
+  
   // Save version tag
   if (tagName.length() > 0) {
     Preferences p; 

@@ -296,26 +296,27 @@ void TltbBleService::shutdownForOta() {
   
   // Save initialization state
   _wasInitialized = _initialized;
+  _connected = false;
   
-  // Stop advertising
+  // Stop advertising first
   NimBLEDevice::stopAdvertising();
+  delay(100);
   
-  // Disconnect all clients
-  if (_server) {
-    _server->disconnect(0xFF);
-    delay(100);
-  }
-  
-  // Deinitialize NimBLE to free radio for WiFi
+  // Deinitialize NimBLE completely - this handles disconnecting clients
+  // Don't manually disconnect - let deinit handle it to avoid rc=7 error
+  Serial.println("[BLE] Deinitializing BLE stack...");
   NimBLEDevice::deinit(true);  // true = release all resources
+  Serial.println("[BLE] BLE stack deinitialized");
   
   _initialized = false;
-  _connected = false;
   _server = nullptr;
   _statusChar = nullptr;
   
-  delay(200); // Allow BLE stack to fully shut down
-  ESP_LOGI(kBleLogTag, "BLE shutdown complete");
+  // CRITICAL: Allow full BLE shutdown before WiFi heavy operations
+  // ESP32 radio needs time to completely release BLE resources
+  delay(500);
+  
+  ESP_LOGI(kBleLogTag, "BLE shutdown complete - radio freed for WiFi");
 }
 
 void TltbBleService::restartAfterOta() {
