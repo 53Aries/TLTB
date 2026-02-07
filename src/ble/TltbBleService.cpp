@@ -3,8 +3,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
-#include <host/ble_gatt.h>
-#include <host/ble_gattc.h>
 #include <esp_gap_ble_api.h>
 #include <esp_log.h>
 #include <mbedtls/base64.h>
@@ -88,8 +86,7 @@ public:
   explicit ServerCallbacks(TltbBleService& service) : _service(service) {}
 
   void onConnect(NimBLEServer* server) override {
-    // Request larger MTU for status notifications (need ~270 bytes for base64 payload)
-    server->updateConnParams(server->getPeerInfo(0).getConnHandle(), 24, 48, 0, 60);
+    (void)server;
     _service.handleClientConnect(server);
   }
 
@@ -347,20 +344,10 @@ void TltbBleService::handleControlWrite(const std::string& value) {
 }
 
 void TltbBleService::handleClientConnect(NimBLEServer* server) {
+  (void)server;
   _connected = true;
-  
-  // Request MTU exchange to support larger notifications (default 23 bytes is too small)
-  // Need ~270 bytes for base64-encoded status payload
-  if (server) {
-    uint16_t connHandle = server->getPeerInfo(0).getConnHandle();
-    // Request 512 byte MTU (max for BLE)
-    int rc = ble_gattc_exchange_mtu(connHandle, nullptr, nullptr);
-    if (rc == 0) {
-      ESP_LOGI(kBleLogTag, "MTU exchange requested");
-    } else {
-      ESP_LOGW(kBleLogTag, "MTU exchange failed: %d", rc);
-    }
-  }
+  // MTU negotiation happens automatically via NimBLEDevice::setMTU() during init
+  ESP_LOGI(kBleLogTag, "Client connected, MTU negotiation will occur automatically");
 }
 
 void TltbBleService::handleClientDisconnect() {
