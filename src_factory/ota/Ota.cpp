@@ -7,6 +7,8 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <Update.h>
+#include "esp_ota_ops.h"
+#include "esp_partition.h"
 #include "prefs.hpp"
 
 namespace Ota {
@@ -121,6 +123,26 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
 
   // 4) Flash using Arduino Update library
   WiFiClient* stream = http2.getStreamPtr();
+  
+  // CRITICAL: Erase the target OTA partition before writing
+  // This prevents checksum errors from corrupted previous writes
+  const esp_partition_t* target = esp_ota_get_next_update_partition(NULL);
+  if (target) {
+    Serial.printf("[OTA] Erasing target partition: %s at 0x%x (size: %u)\n", 
+      target->label, target->address, target->size);
+    status(cb, "Erasing partition...");
+    esp_err_t err = esp_partition_erase_range(target, 0, target->size);
+    if (err != ESP_OK) {
+      char buf[48];
+      snprintf(buf, sizeof(buf), "Erase failed: %d", err);
+      status(cb, buf);
+      Serial.printf("[OTA] Partition erase failed with error: %d\n", err);
+      http2.end();
+      return false;
+    }
+    Serial.println("[OTA] Partition erased successfully");
+    delay(100);
+  }
   
   if (!Update.begin(contentLen)) {
     char buf[48];
