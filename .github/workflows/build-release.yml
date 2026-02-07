@@ -1,10 +1,7 @@
 name: Build and Release Firmware
 
 on:
-  push:
-    tags:
-      - 'v*'  # Triggers on any version tag starting with v
-  workflow_dispatch:  # Allows manual triggering
+  workflow_dispatch:  # Manual triggering only
     inputs:
       tag:
         description: 'Tag name for release (e.g., v1.1)'
