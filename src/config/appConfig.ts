@@ -25,7 +25,7 @@ const parseNumber = (value: string | undefined, fallback: number) => {
 };
 
 export const appConfig = {
-  useMockBleTransport: parseBoolean(process.env.EXPO_PUBLIC_USE_MOCK_BLE, true),
+  useMockBleTransport: parseBoolean(process.env.EXPO_PUBLIC_USE_MOCK_BLE, false),
   deviceNamePrefix: process.env.EXPO_PUBLIC_BLE_DEVICE_PREFIX ?? 'TLTB',
   autoReconnectMs: parseNumber(process.env.EXPO_PUBLIC_BLE_RECONNECT_MS, 1500),
 };
