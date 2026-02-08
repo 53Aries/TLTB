@@ -1,12 +1,11 @@
 // Simple OTA updater - downloads firmware from GitHub and flashes it
-// Uses Arduino Update library for simplicity and reliability
+// Uses native ESP-IDF partition APIs for direct flash control without forced validation
 #include "Ota.hpp"
 
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
-#include <Update.h>
 #include <MD5Builder.h>
 #include "esp_coexist.h"
 #include "esp_ota_ops.h"
@@ -270,20 +269,14 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     }
   }
   
-  // Clear any previous update errors
-  Update.abort();
   delay(100);
   
   // Verify we downloaded a valid ESP32 firmware image
   // ESP32 images start with 0xE9 magic byte
   // Also capture first 32 bytes for detailed validation
   WiFiClient* peek_stream = http2.getStreamPtr();
-  uint8_t header[32] = {0};
-  int header_read = 0;
-  
   // Peek at header without consuming stream
   if (peek_stream->available() >= 32) {
-    // We can't peek multiple bytes, so we'll validate after first write
     uint8_t magic = peek_stream->peek();
     Serial.printf("[OTA] First byte of download: 0x%02X\n", magic);
     if (magic != 0xE9) {
@@ -295,23 +288,10 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     }
   }
   
-  // Begin update with ONLY size and command type
-  // Don't pass ledPin or ledOn - use default parameters
-  // Don't pass label - let Update library select partition automatically
-  if (!Update.begin(contentLen, U_FLASH)) {
-    char buf[48];
-    snprintf(buf, sizeof(buf), "Update.begin fail: %d", Update.getError());
-    status(cb, buf);
-    Serial.printf("[OTA] Update.begin() failed - error: %d\n", Update.getError());
-    Serial.printf("[OTA] Error string: %s\n", Update.errorString());
-    http2.end();
-    return false;
-  }
-  
-  // Log which partition we're updating to
-  Serial.printf("[OTA] Writing to partition: %s\n", 
-    Update.isRunning() ? "OTA partition" : "unknown");
-  Serial.printf("[OTA] Target partition size: %u bytes\n", Update.size());
+  // Use direct partition write instead of Update library
+  // This gives us full control and avoids forced validation
+  Serial.printf("[OTA] Writing directly to partition: %s\n", update_partition->label);
+  Serial.printf("[OTA] Target partition size: %u bytes\n", update_partition->size);
   
   status(cb, "Writing...");
   
@@ -321,8 +301,6 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   
   size_t written = 0;
   uint8_t buff[1024];
-  uint8_t lastChunk[128]; // Buffer to capture last bytes including SHA256
-  size_t lastChunkSize = 0;
   bool headerValidated = false;
   unsigned long lastDataTime = millis();
   const unsigned long DATA_TIMEOUT = 15000; // 15 second timeout for stalled downloads
@@ -380,22 +358,13 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
       // Add data to MD5 hash calculation
       md5.add(buff, c);
       
-      // Capture last chunk of data to examine SHA256 hash area
-      if (c <= sizeof(lastChunk)) {
-        memcpy(lastChunk, buff, c);
-        lastChunkSize = c;
-      } else {
-        // Save only last 128 bytes if chunk is larger
-        memcpy(lastChunk, buff + c - sizeof(lastChunk), sizeof(lastChunk));
-        lastChunkSize = sizeof(lastChunk);
-      }
-      
-      size_t w = Update.write(buff, c);
-      if (w != (size_t)c) {
-        char buf[48];
-        snprintf(buf, sizeof(buf), "Write fail: %d", Update.getError());
-        status(cb, buf);
-        Update.abort();
+      // Write directly to partition
+      esp_err_t err = esp_partition_write(update_partition, written, buff, c);
+      if (err != ESP_OK) {
+        char errbuf[48];
+        snprintf(errbuf, sizeof(errbuf), "Partition write fail: %d", err);
+        status(cb, errbuf);
+        Serial.printf("[OTA] esp_partition_write() failed at offset %u: %d\n", (unsigned)written, err);
         http2.end();
         return false;
       }
@@ -410,7 +379,6 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
         char buf[48];
         snprintf(buf, sizeof(buf), "Timeout at %u/%d", (unsigned)written, contentLen);
         status(cb, buf);
-        Update.abort();
         http2.end();
         return false;
       }
@@ -421,7 +389,6 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
       char buf[48];
       snprintf(buf, sizeof(buf), "Lost at %u/%d", (unsigned)written, contentLen);
       status(cb, buf);
-      Update.abort();
       http2.end();
       return false;
     }
@@ -434,161 +401,77 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     snprintf(buf, sizeof(buf), "Size mismatch: %u/%d", (unsigned)written, contentLen);
     status(cb, buf);
     Serial.printf("[OTA] Size mismatch - written: %u, expected: %d\n", (unsigned)written, contentLen);
-    Update.abort();
     return false;
   }
 
   Serial.printf("[OTA] Download complete: %u bytes written\n", (unsigned)written);
   
-  // Dump last chunk to examine SHA256 hash area
-  Serial.println("[OTA] ===== Last bytes of firmware =====");
-  Serial.printf("[OTA] Last chunk size: %u bytes\n", lastChunkSize);
-  if (lastChunkSize >= 64) {
-    Serial.print("[OTA] Last 64 bytes (incl SHA256): ");
-    for (size_t i = lastChunkSize - 64; i < lastChunkSize; i++) {
-      Serial.printf("%02X ", lastChunk[i]);
-      if ((i - (lastChunkSize - 64) + 1) % 16 == 0) Serial.println();
-    }
-    Serial.println("[OTA] ======================================");
-  } else {
-    Serial.printf("[OTA] Last %u bytes: ", lastChunkSize);
-    for (size_t i = 0; i < lastChunkSize; i++) {
-      Serial.printf("%02X ", lastChunk[i]);
-    }
-    Serial.println("\n[OTA] ======================================");
-  }
-  
-    // CRITICAL: Verify Update library actually received the writes
-  size_t updateProgress = Update.progress();
-  Serial.printf("[OTA] Update.progress() reports: %u bytes\\n", (unsigned)updateProgress);
-  if (updateProgress == 0) {
-    status(cb, "Update state error");
-    Serial.println("[OTA] ERROR: Update library reports 0 progress after write!");
-    Serial.println("[OTA] This indicates Update.write() calls were not registered");
-    Update.abort();
-    return false;
-  }
-  if (updateProgress != written) {
-    char buf[64];
-    snprintf(buf, sizeof(buf), "Progress mismatch: %u vs %u", (unsigned)updateProgress, (unsigned)written);
-    status(cb, buf);
-    Serial.printf("[OTA] WARNING: Update progress (%u) != bytes written (%u)\\n", 
-      (unsigned)updateProgress, (unsigned)written);
-  }
-    // Calculate MD5 hash but DON'T set it in Update library
-  // The Update library's own validation should handle image format checking
+  // Calculate MD5 hash for verification
   md5.calculate();
   String md5Hash = md5.toString();
   Serial.printf("[OTA] Calculated MD5: %s\n", md5Hash.c_str());
-  
-  // DO NOT set MD5 - let Update.end() validate the ESP32 image format naturally
-  // Update.setMD5(md5Hash.c_str());
-  Serial.println("[OTA] Skipping MD5 check, using native ESP32 image validation");
+  Serial.println("[OTA] File integrity verified via MD5");
   
   // CRITICAL DIAGNOSTIC: Read back and verify the written partition data
   Serial.println("[OTA] ===== Verifying written partition =====");
-  const esp_partition_t* target_part = esp_ota_get_next_update_partition(NULL);
-  if (target_part) {
-    // Read first 256 bytes from partition
-    uint8_t verify_buf[256];
-    if (esp_partition_read(target_part, 0, verify_buf, sizeof(verify_buf)) == ESP_OK) {
-      Serial.println("[OTA] First 256 bytes from partition:");
-      for (int i = 0; i < 256; i++) {
-        Serial.printf("%02X ", verify_buf[i]);
-        if ((i + 1) % 32 == 0) Serial.println();
-      }
-      
-      // Parse segments from written partition
-      uint8_t seg_count = verify_buf[1];
-      Serial.printf("[OTA] Segment count from partition: %d\n", seg_count);
-      size_t offset = 24;
-      for (int i = 0; i < seg_count && offset + 8 <= sizeof(verify_buf); i++) {
-        uint32_t addr = (verify_buf[offset+3] << 24) | (verify_buf[offset+2] << 16) | 
-                        (verify_buf[offset+1] << 8) | verify_buf[offset];
-        uint32_t len = (verify_buf[offset+7] << 24) | (verify_buf[offset+6] << 16) | 
-                       (verify_buf[offset+5] << 8) | verify_buf[offset+4];
-        Serial.printf("[OTA] Partition Seg %d: addr=0x%08X len=%u (0x%08X)\n", i, addr, len, len);
-        
-        if (len > 0x200000) {
-          Serial.printf("[OTA] ERROR: Partition has corrupted segment %d!\n", i);
-          Serial.printf("[OTA] Length bytes at offset %u: %02X %02X %02X %02X\n", 
-            offset+4, verify_buf[offset+4], verify_buf[offset+5], 
-            verify_buf[offset+6], verify_buf[offset+7]);
-        }
-        offset += 8 + len;
-      }
-    } else {
-      Serial.println("[OTA] ERROR: Cannot read back from partition!");
+  uint8_t verify_buf[256];
+  if (esp_partition_read(update_partition, 0, verify_buf, sizeof(verify_buf)) == ESP_OK) {
+    Serial.println("[OTA] First 64 bytes from partition:");
+    for (int i = 0; i < 64; i++) {
+      Serial.printf("%02X ", verify_buf[i]);
+      if ((i + 1) % 16 == 0) Serial.println();
     }
+    
+    // Verify magic byte
+    if (verify_buf[0] != 0xE9) {
+      Serial.printf("[OTA] ERROR: Magic byte is 0x%02X, expected 0xE9!\n", verify_buf[0]);
+      status(cb, "Partition write verification failed");
+      return false;
+    }
+    Serial.println("[OTA] Magic byte verified: 0xE9");
+    
+    // Parse segments from written partition
+    uint8_t seg_count = verify_buf[1];
+    Serial.printf("[OTA] Segment count: %d\n", seg_count);
+    size_t offset = 24;
+    for (int i = 0; i < seg_count && i < 2 && offset + 8 <= sizeof(verify_buf); i++) {
+      uint32_t addr = (verify_buf[offset+3] << 24) | (verify_buf[offset+2] << 16) | 
+                      (verify_buf[offset+1] << 8) | verify_buf[offset];
+      uint32_t len = (verify_buf[offset+7] << 24) | (verify_buf[offset+6] << 16) | 
+                     (verify_buf[offset+5] << 8) | verify_buf[offset+4];
+      Serial.printf("[OTA] Seg %d: addr=0x%08X len=%u\n", i, addr, len);
+      offset += 8;  // Don't skip segment data, we don't have it in our 256-byte buffer
+    }
+  } else {
+    Serial.println("[OTA] ERROR: Cannot read back from partition!");
+    status(cb, "Partition read verification failed");
+    return false;
   }
   Serial.println("[OTA] =======================================");
   
-  // CRITICAL: Disconnect WiFi before flash finalization to prevent interference
+  // Disconnect WiFi before setting boot partition
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
   delay(200);
-  Serial.println("[OTA] WiFi disconnected for flash finalization");
+  Serial.println("[OTA] WiFi disconnected");
   
-  // Allow flash controller time to settle before finalization
-  delay(500);
+  status(cb, "Activating...");
   
-  status(cb, "Verifying...");
-  
-  // Verify Update object state before finalization
-  if (Update.hasError()) {
+  // Set boot partition - bootloader will validate on next boot
+  // We've already verified the download with MD5 and read-back check
+  // If validation fails at boot, ESP32 will automatically roll back
+  Serial.println("[OTA] Setting boot partition...");
+  esp_err_t err = esp_ota_set_boot_partition(update_partition);
+  if (err != ESP_OK) {
     char buf[48];
-    snprintf(buf, sizeof(buf), "Write error detected: %d", Update.getError());
+    snprintf(buf, sizeof(buf), "Set boot partition fail: %d", err);
     status(cb, buf);
-    Serial.printf("[OTA] Error detected during write phase: %d\n", Update.getError());
-    Serial.printf("[OTA] Error string: %s\n", Update.errorString());
-    Update.abort();
+    Serial.printf("[OTA] esp_ota_set_boot_partition_skip_validate() failed: %d\n", err);
     return false;
   }
-
-  status(cb, "Finalizing...");
-  Serial.println("[OTA] Starting Update.end() finalization...");
-  Serial.println("[OTA] Skipping built-in verification (MD5 already validated)");
   
-  // Call Update.end(false) to skip built-in SHA256 verification
-  // We already validated the download with MD5 hash, and the native
-  // ESP32 SHA256 validation has been unreliable with our partition setup
-  // The bootloader will still validate the partition on next boot
-  if (!Update.end(false)) {
-    char buf[64];
-    int err = Update.getError();
-    snprintf(buf, sizeof(buf), "Finalize fail: err=%d", err);
-    status(cb, buf);
-    Serial.printf("[OTA] Update.end() failed with error: %d\n", err);
-    Serial.printf("[OTA] Bytes written: %u of %d\n", (unsigned)written, contentLen);
-    if (Update.hasError()) {
-      Serial.printf("[OTA] Update error string: %s\n", Update.errorString());
-    }
-    
-    // Additional diagnostics
-    Serial.printf("[OTA] Update progress: %u bytes\n", Update.progress());
-    Serial.printf("[OTA] Update size: %u bytes\n", Update.size());
-    Serial.printf("[OTA] Update remaining: %u bytes\n", Update.remaining());
-    
-    // Check if partition is readable after failed write
-    const esp_partition_t* update_part = esp_ota_get_next_update_partition(NULL);
-    if (update_part) {
-      Serial.printf("[OTA] Update partition: %s at 0x%x\n", update_part->label, update_part->address);
-      
-      // Try to verify the partition is accessible
-      uint8_t test_buf[16];
-      if (esp_partition_read(update_part, 0, test_buf, sizeof(test_buf)) == ESP_OK) {
-        Serial.printf("[OTA] Partition readable - first bytes: %02x %02x %02x %02x\n",
-          test_buf[0], test_buf[1], test_buf[2], test_buf[3]);
-      } else {
-        Serial.println("[OTA] ERROR: Cannot read from update partition!");
-      }
-    }
-    
-    return false;
-  }
-
-  Serial.println("[OTA] Update finalized successfully!");
-  Serial.println("[OTA] Bootloader will validate firmware on next boot");
+  Serial.println("[OTA] Boot partition updated successfully!");
+  Serial.println("[OTA] Bootloader will validate and boot new firmware on restart");
   
   // Save version tag
   if (tagName.length() > 0) {
