@@ -36,6 +36,7 @@ public:
   void begin(const char* deviceName, const BleCallbacks& callbacks);
   void publishStatus(const BleStatusContext& ctx);
   void requestImmediateStatus();
+  void syncStateOnConnection();  // Force state sync for newly connected clients
   void stopAdvertising();
   void restartAdvertising();
   void shutdownForOta();     // Complete BLE shutdown for WiFi OTA operations
