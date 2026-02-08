@@ -485,6 +485,44 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   // Update.setMD5(md5Hash.c_str());
   Serial.println("[OTA] Skipping MD5 check, using native ESP32 image validation");
   
+  // CRITICAL DIAGNOSTIC: Read back and verify the written partition data
+  Serial.println("[OTA] ===== Verifying written partition =====");
+  const esp_partition_t* target_part = esp_ota_get_next_update_partition(NULL);
+  if (target_part) {
+    // Read first 256 bytes from partition
+    uint8_t verify_buf[256];
+    if (esp_partition_read(target_part, 0, verify_buf, sizeof(verify_buf)) == ESP_OK) {
+      Serial.println("[OTA] First 256 bytes from partition:");
+      for (int i = 0; i < 256; i++) {
+        Serial.printf("%02X ", verify_buf[i]);
+        if ((i + 1) % 32 == 0) Serial.println();
+      }
+      
+      // Parse segments from written partition
+      uint8_t seg_count = verify_buf[1];
+      Serial.printf("[OTA] Segment count from partition: %d\n", seg_count);
+      size_t offset = 24;
+      for (int i = 0; i < seg_count && offset + 8 <= sizeof(verify_buf); i++) {
+        uint32_t addr = (verify_buf[offset+3] << 24) | (verify_buf[offset+2] << 16) | 
+                        (verify_buf[offset+1] << 8) | verify_buf[offset];
+        uint32_t len = (verify_buf[offset+7] << 24) | (verify_buf[offset+6] << 16) | 
+                       (verify_buf[offset+5] << 8) | verify_buf[offset+4];
+        Serial.printf("[OTA] Partition Seg %d: addr=0x%08X len=%u (0x%08X)\n", i, addr, len, len);
+        
+        if (len > 0x200000) {
+          Serial.printf("[OTA] ERROR: Partition has corrupted segment %d!\n", i);
+          Serial.printf("[OTA] Length bytes at offset %u: %02X %02X %02X %02X\n", 
+            offset+4, verify_buf[offset+4], verify_buf[offset+5], 
+            verify_buf[offset+6], verify_buf[offset+7]);
+        }
+        offset += 8 + len;
+      }
+    } else {
+      Serial.println("[OTA] ERROR: Cannot read back from partition!");
+    }
+  }
+  Serial.println("[OTA] =======================================");
+  
   // CRITICAL: Disconnect WiFi before flash finalization to prevent interference
   // WiFi activity can cause flash write corruption during validation
   WiFi.disconnect(true);
