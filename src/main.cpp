@@ -1,14 +1,23 @@
-// File Overview: Application entry point for the Trailer Lighting Test Box; initializes
-// hardware, drives the UI, samples telemetry, and coordinates protection plus relay logic.
+// =============================================================================
+// TLTB - Trailer Lighting Test Box
+// Main application entry point
+// 
+// Responsibilities:
+//   - Hardware initialization (display, sensors, RF, BLE)
+//   - UI rendering and user input processing
+//   - Telemetry sampling and protection monitoring
+//   - Relay control coordination
+// =============================================================================
+
 #include <Arduino.h>
 #include <SPI.h>
 #include <Adafruit_ST7735.h>
 
-// ESP-IDF C headers already provide their own extern "C" guards; direct includes keep this cleaner.
+// ESP-IDF headers
 #include "esp_task_wdt.h"
 #include "esp_ota_ops.h"
 #include "esp_log.h"
-#include "soc/rtc_cntl_reg.h"  // For brownout detector control
+#include "soc/rtc_cntl_reg.h"
 
 #include <WiFi.h>
 #include "esp_coexist.h"
@@ -24,29 +33,46 @@
 #include "power/Protector.hpp"
 #include "ble/TltbBleService.hpp"
 
-// ---------------- Globals ----------------
-static Adafruit_ST7735* tft = nullptr;   // shared SPI
-static DisplayUI* ui = nullptr;
-Preferences prefs;
-static Telemetry tele{};
-static bool g_startupGuard = false; // Prevents relay activation until 1p8t is cycled to OFF
-static TltbBleService g_bleService;
-static uint32_t g_faultMask = 0;
-static constexpr bool kBypassInaPresenceCheck = true; // Temporary bypass when sensors are disconnected
-static int8_t g_bleActiveRelay = -1; // Track last BLE-activated relay (-1 = none)
+// =============================================================================
+// Global State
+// =============================================================================
 
-// Cooldown timer state (20.5A usage limit)
-static uint32_t g_highCurrentStartMs = 0; // When >20.5A current started (0=not active)
-static uint32_t g_cooldownStartMs = 0;    // When cooldown period started (0=not in cooldown)
-static constexpr uint32_t HIGH_CURRENT_LIMIT_MS = 120000; // 120 seconds
-static constexpr uint32_t COOLDOWN_PERIOD_MS = 120000;     // 120 seconds
-static constexpr float HIGH_CURRENT_THRESHOLD = 20.5f;     // 20.5 amps
+static Adafruit_ST7735* tft = nullptr;    // Shared SPI display
+static DisplayUI* ui = nullptr;            // UI controller
+Preferences prefs;                         // NVS storage
+static Telemetry tele{};                   // Telemetry data
+static TltbBleService g_bleService;        // BLE service
+static uint32_t g_faultMask = 0;           // Active fault flags
 
-// LEDC (backlight)
+// Startup guard: prevents relay activation until 1p8t switch is cycled to OFF
+static bool g_startupGuard = false;
+
+// BLE relay tracking: which relay was last activated via BLE (-1 = none)
+static int8_t g_bleActiveRelay = -1;
+
+// Temporary bypass for INA226 presence check when sensors are disconnected
+static constexpr bool kBypassInaPresenceCheck = true;
+
+// =============================================================================
+// High Current Monitoring & Cooldown
+// Enforces 20.5A limit: 120 seconds on, 120 seconds cooldown
+// =============================================================================
+
+static uint32_t g_highCurrentStartMs = 0;  // Timestamp when >20.5A started (0 = inactive)
+static uint32_t g_cooldownStartMs = 0;     // Timestamp when cooldown started (0 = not in cooldown)
+
+static constexpr uint32_t HIGH_CURRENT_LIMIT_MS = 120000;  // Maximum high current duration (seconds)
+static constexpr uint32_t COOLDOWN_PERIOD_MS = 120000;     // Required cooldown time (2 minutes)
+static constexpr float HIGH_CURRENT_THRESHOLD = 20.5f;     // Current threshold (amps)
+
+// =============================================================================
+// Display Backlight Control
+// =============================================================================
+
 static const int BL_CHANNEL = 0;
-
-// Backlight
-static void setBacklight(uint8_t v){ ledcWrite(BL_CHANNEL, v); }
+static void setBacklight(uint8_t brightness) { 
+  ledcWrite(BL_CHANNEL, brightness); 
+}
 
 // -------------------------------------------------------------------
 // ----------- Encoder (ISR-based, fast + debounced) -----------------
@@ -298,13 +324,6 @@ void setup() {
   // This prevents flash corruption during cold boots with slow voltage ramp
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 1);
 
-  // TFT & encoder/buttons pins
-  // Keep backlight OFF until panel is fully initialized to avoid white-screen on cold power
-  pinMode(PIN_TFT_BL, OUTPUT); digitalWrite(PIN_TFT_BL, LOW);
-  pinMode(PIN_TFT_CS, OUTPUT);  digitalWrite(PIN_TFT_CS, HIGH);
-  pinMode(PIN_TFT_DC, OUTPUT);
-  pinMode(PIN_TFT_RST, OUTPUT);
-  
   // CRITICAL: Allow power rails to settle on cold battery connect
   // After hours unpowered, capacitors are fully discharged
   // Flash memory needs stable voltage before any read/write operations
@@ -326,85 +345,6 @@ void setup() {
   pinMode(PIN_ENC_OK,   INPUT_PULLUP); // OK: idle HIGH (~3V3), pressed LOW
   pinMode(PIN_ENC_BACK, INPUT_PULLUP);
 
-  // Factory recovery boot detection: BACK button held during power-on
-  // Simple UX: just hold BACK when powering on, device shows countdown, then boots to factory after 5 sec
-  delay(5);
-  if (digitalRead(PIN_ENC_BACK) == LOW) {
-    // Initialize display for countdown feedback
-    pinMode(PIN_TFT_RST, OUTPUT);
-    digitalWrite(PIN_TFT_RST, HIGH); delay(50);
-    digitalWrite(PIN_TFT_RST, LOW);  delay(120);
-    digitalWrite(PIN_TFT_RST, HIGH); delay(150);
-    
-    SPI.begin(PIN_FSPI_SCK, PIN_FSPI_MISO, PIN_FSPI_MOSI, PIN_TFT_CS);
-    Adafruit_ST7735 tft(&SPI, PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST);
-    tft.setSPISpeed(8000000UL);
-    tft.initR(INITR_BLACKTAB);
-    tft.setRotation(3);
-    tft.fillScreen(ST77XX_BLACK);
-    tft.setTextColor(ST77XX_YELLOW);
-    tft.setTextSize(2);
-    tft.setCursor(10, 50);
-    tft.println("RECOVERY");
-    tft.setCursor(10, 70);
-    tft.println("MODE...");
-    
-    uint32_t holdStart = millis();
-    bool triggered = false;
-    
-    // Show countdown while button held
-    while (digitalRead(PIN_ENC_BACK) == LOW && (millis() - holdStart) < 5000) {
-      uint32_t elapsed = millis() - holdStart;
-      uint8_t secsLeft = 5 - (elapsed / 1000);
-      
-      // Update countdown display every 500ms
-      if ((elapsed % 500) < 50) {
-        tft.fillRect(70, 100, 20, 20, ST77XX_BLACK);
-        tft.setTextSize(3);
-        tft.setCursor(70, 100);
-        tft.print(secsLeft);
-      }
-      
-      if (elapsed >= 5000) {
-        triggered = true;
-        break;
-      }
-      delay(10);
-    }
-    
-    if (triggered) {
-      // Boot to factory partition for OTA recovery
-      const esp_partition_t* factory = esp_partition_find_first(
-        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, "factory");
-      
-      if (factory) {
-        tft.fillScreen(ST77XX_BLACK);
-        tft.setTextColor(ST77XX_GREEN);
-        tft.setTextSize(2);
-        tft.setCursor(10, 60);
-        tft.println("ENTERING");
-        tft.setCursor(10, 80);
-        tft.println("RECOVERY");
-        
-        Serial.println("\n=== FACTORY RECOVERY MODE ===");
-        Serial.printf("Booting to factory partition at 0x%x\n", factory->address);
-        
-        esp_err_t err = esp_ota_set_boot_partition(factory);
-        if (err == ESP_OK) {
-          delay(500); // Show confirmation message
-          ESP.restart();
-        } else {
-          Serial.printf("Failed to set factory partition: %d\n", err);
-        }
-      } else {
-        Serial.println("Factory partition not found - please flash factory firmware");
-      }
-    }
-    
-    // If we get here, user released button early or recovery failed
-    // Continue with normal boot (display will be re-initialized below)
-  }
-
   attachInterrupt(digitalPinToInterrupt(PIN_ENC_A), enc_isrA, RISING);
 
   // Rotary switch pins
@@ -425,6 +365,13 @@ void setup() {
 
   // Relays safe init
   relaysBegin();
+
+  // TFT & encoder/buttons pins
+  // Keep backlight OFF until panel is fully initialized to avoid white-screen on cold power
+  pinMode(PIN_TFT_BL, OUTPUT); digitalWrite(PIN_TFT_BL, LOW);
+  pinMode(PIN_TFT_CS, OUTPUT);  digitalWrite(PIN_TFT_CS, HIGH);
+  pinMode(PIN_TFT_DC, OUTPUT);
+  pinMode(PIN_TFT_RST, OUTPUT);
 
   // SPI once (shared TFT + RF)
   // Explicitly configure SPI pins before begin to ensure JTAG defaults are overridden

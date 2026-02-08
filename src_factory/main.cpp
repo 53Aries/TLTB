@@ -218,8 +218,29 @@ bool performFactoryOTA() {
 }
 
 void setup() {
+  // Start serial FIRST before anything else
+  Serial.begin(115200);
+  delay(500);  // Give serial time to initialize
+  
+  // IMMEDIATE output to verify firmware is actually running
+  Serial.println();
+  Serial.println();
+  Serial.println();
+  for (int i = 0; i < 5; i++) {
+    Serial.println("*** FACTORY FIRMWARE ALIVE ***");
+    delay(100);
+  }
+  Serial.flush();
+  
+  Serial.println("\n\n\n========================================");
+  Serial.println("FACTORY RECOVERY FIRMWARE STARTING");
+  Serial.println("========================================");
+  Serial.flush();
+  
   // CRITICAL: Disable all relays FIRST to prevent accidental activation
   // Relays are active-low, so HIGH = OFF
+  Serial.println("[Factory] Disabling all relays...");
+  Serial.flush();
   pinMode(PIN_RELAY_LH, OUTPUT);     digitalWrite(PIN_RELAY_LH, HIGH);
   pinMode(PIN_RELAY_RH, OUTPUT);     digitalWrite(PIN_RELAY_RH, HIGH);
   pinMode(PIN_RELAY_BRAKE, OUTPUT);  digitalWrite(PIN_RELAY_BRAKE, HIGH);
@@ -227,10 +248,14 @@ void setup() {
   pinMode(PIN_RELAY_MARKER, OUTPUT); digitalWrite(PIN_RELAY_MARKER, HIGH);
   pinMode(PIN_RELAY_AUX, OUTPUT);    digitalWrite(PIN_RELAY_AUX, HIGH);
   pinMode(PIN_RELAY_ENABLE, OUTPUT); digitalWrite(PIN_RELAY_ENABLE, HIGH);
+  Serial.println("[Factory] Relays disabled");
+  Serial.flush();
   
   // CRITICAL: Reset boot partition to OTA_0 immediately on factory entry
   // This ensures we never get stuck in factory mode after power cycle
   // If OTA succeeds, Update.end() will set the new partition as boot
+  Serial.println("[Factory] Resetting boot partition to OTA_0...");
+  Serial.flush();
   const esp_partition_t* ota0 = esp_partition_find_first(
     ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
   if (ota0) {
@@ -238,8 +263,8 @@ void setup() {
     Serial.println("[Factory] Boot partition reset to OTA_0 for safety");
   }
   
-  Serial.begin(115200);
-  delay(100);
+  Serial.println("[Factory] Starting display initialization...");
+  Serial.flush();
   
   Serial.println("\n\n========================================");
   Serial.println("FACTORY RECOVERY MODE");
@@ -251,36 +276,83 @@ void setup() {
     Serial.printf("Running from: %s (0x%x)\n", running->label, running->address);
   }
   
-  // Initialize display hardware FIRST
+  // Initialize display hardware - EXACT sequence from main.cpp
+  Serial.println("[Factory] Configuring backlight pin...");
+  Serial.flush();
+  // CRITICAL: Configure pin as OUTPUT first, then clear any PWM
+  pinMode(PIN_TFT_BL, OUTPUT);
+  digitalWrite(PIN_TFT_BL, LOW);
+  ledcDetachPin(PIN_TFT_BL);  // Clear any PWM mode from countdown screen
+  Serial.println("[Factory] Backlight OFF");
+  Serial.flush();
+  delay(50);  // Ensure backlight is fully off before proceeding
+  
+  // Configure all TFT pins as outputs before init
+  pinMode(PIN_TFT_CS, OUTPUT);
+  digitalWrite(PIN_TFT_CS, HIGH);  // CS idle high (deselected)
+  pinMode(PIN_TFT_DC, OUTPUT);
   pinMode(PIN_TFT_RST, OUTPUT);
+  
+  // Configure SPI pins explicitly
   pinMode(PIN_FSPI_SCK, OUTPUT);
   pinMode(PIN_FSPI_MOSI, OUTPUT);
   pinMode(PIN_FSPI_MISO, INPUT);
   
-  // Strong reset sequence
+  // Start SPI bus
+  Serial.println("[Factory] Starting SPI bus...");
+  Serial.flush();
+  SPI.begin(PIN_FSPI_SCK, PIN_FSPI_MISO, PIN_FSPI_MOSI, PIN_TFT_CS);
+  delay(30);  // Allow peripheral settle (matches main.cpp)
+  Serial.println("[Factory] SPI bus ready");
+  Serial.flush();
+  
+  // TFT reset + init - strong hardware reset timing
   digitalWrite(PIN_TFT_RST, HIGH); delay(50);
   digitalWrite(PIN_TFT_RST, LOW);  delay(120);
   digitalWrite(PIN_TFT_RST, HIGH); delay(150);
   
-  SPI.begin(PIN_FSPI_SCK, PIN_FSPI_MISO, PIN_FSPI_MOSI, PIN_TFT_CS);
-  delay(50);
-  
+  // Create TFT object and initialize - EXACTLY as main.cpp
+  Serial.println("[Factory] Creating TFT object...");
+  Serial.flush();
   tft = new Adafruit_ST7735(&SPI, PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST);
+  Serial.println("[Factory] Setting SPI speed...");
+  Serial.flush();
   tft->setSPISpeed(8000000UL);
+  Serial.println("[Factory] Initializing display controller...");
+  Serial.flush();
   tft->initR(INITR_BLACKTAB);
-  tft->setRotation(1);
+  Serial.println("[Factory] Setting rotation...");
+  Serial.flush();
+  tft->setRotation(1);  // MUST match main app rotation 1
+  Serial.println("[Factory] Clearing screen...");
+  Serial.flush();
   tft->fillScreen(ST77XX_BLACK);
-  
-  // Enable backlight - use ledcSetup for PWM control
-  ledcSetup(0, 5000, 8);
-  ledcAttachPin(PIN_TFT_BL, 0);
-  ledcWrite(0, 255);  // Full brightness
+  delay(100);  // CRITICAL: Ensure fillScreen SPI operations complete
+  Serial.println("[Factory] Display initialized");
+  Serial.flush();
   
   // Button setup
   pinMode(PIN_ENC_OK, INPUT_PULLUP);
   pinMode(PIN_ENC_BACK, INPUT_PULLUP);
   
+  // Draw content FIRST before enabling backlight
+  Serial.println("[Factory] Drawing recovery UI...");
+  Serial.flush();
   showText("RECOVERY MODE", "Factory Partition", "Press OK to update");
+  Serial.println("[Factory] UI drawn, waiting for SPI flush...");
+  Serial.flush();
+  
+  // CRITICAL: Ensure ALL SPI drawing operations complete before backlight
+  delay(250);  // Longer delay to guarantee SPI buffer is flushed
+  
+  // Enable backlight - use simple digitalWrite (matches countdown screen behavior)
+  // PWM setup might have timing issues after reboot
+  Serial.println("[Factory] Turning ON backlight...");
+  Serial.flush();
+  digitalWrite(PIN_TFT_BL, HIGH);
+  Serial.println("[Factory] Display should now be visible!");
+  Serial.flush();
+  
   delay(2000);
   
   // Wait for OK button press

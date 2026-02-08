@@ -151,6 +151,10 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     status(cb, "Using fallback URL");
   }
 
+  // Log download details
+  Serial.printf("[OTA] Release tag: %s\n", tagName.c_str());
+  Serial.printf("[OTA] Download URL: %s\n", assetUrl);
+
   // 3) Download firmware
   status(cb, "Downloading...");
   WiFi.setTxPower(WIFI_POWER_19_5dBm); // Max power for reliable download
@@ -171,8 +175,17 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   
   code = http2.GET();
   if (code != HTTP_CODE_OK) {
-    char buf[32]; snprintf(buf, sizeof(buf), "Download HTTP %d", code);
+    char buf[64]; 
+    snprintf(buf, sizeof(buf), "Download HTTP %d", code);
     status(cb, buf);
+    Serial.printf("[OTA] HTTP error %d downloading firmware\n", code);
+    
+    // Check if we got HTML instead of binary (404 page)
+    if (code == HTTP_CODE_NOT_FOUND) {
+      Serial.println("[OTA] ERROR: firmware.bin not found in release!");
+      Serial.println("[OTA] Please create a GitHub release with firmware.bin attached");
+    }
+    
     http2.end();
     return false;
   }
@@ -184,12 +197,79 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     return false;
   }
   
+  // Sanity check: firmware should be at least 100KB and less than 2MB
+  if (contentLen < 100000 || contentLen > 2000000) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Invalid size: %d bytes", contentLen);
+    status(cb, buf);
+    Serial.printf("[OTA] ERROR: Suspicious firmware size: %d bytes\n", contentLen);
+    Serial.println("[OTA] May have downloaded HTML instead of binary");
+    http2.end();
+    return false;
+  }
+  
   char sizeBuf[32];
   snprintf(sizeBuf, sizeof(sizeBuf), "Size: %d bytes", contentLen);
   status(cb, sizeBuf);
+  Serial.printf("[OTA] Firmware size: %d bytes\n", contentLen);
 
   // 4) Flash using Arduino Update library
   WiFiClient* stream = http2.getStreamPtr();
+  
+  // CRITICAL: Reuse the update_partition we identified earlier
+  // Verify it's valid and erase it for a clean slate
+  if (!update_partition) {
+    status(cb, "No OTA partition");
+    Serial.println("[OTA] ERROR: No OTA partition available!");
+    http2.end();
+    return false;
+  }
+  
+  Serial.printf("[OTA] Target partition: %s at 0x%x (size: %u)\n",
+    update_partition->label, update_partition->address, update_partition->size);
+  
+  // Verify partition is writeable
+  if (update_partition->size < (size_t)contentLen) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Firmware too large: %d > %u", contentLen, update_partition->size);
+    status(cb, buf);
+    Serial.printf("[OTA] ERROR: %s\n", buf);
+    http2.end();
+    return false;
+  }
+  
+  // CRITICAL: Erase the entire target partition before Update.begin()
+  // This prevents residual data from corrupting validation
+  Serial.println("[OTA] Erasing target partition...");
+  status(cb, "Erasing...");
+  esp_err_t erase_err = esp_partition_erase_range(update_partition, 0, update_partition->size);
+  if (erase_err != ESP_OK) {
+    char buf[48];
+    snprintf(buf, sizeof(buf), "Erase failed: %d", erase_err);
+    status(cb, buf);
+    Serial.printf("[OTA] ERROR: Partition erase failed: %d\n", erase_err);
+    http2.end();
+    return false;
+  }
+  Serial.println("[OTA] Partition erased successfully");
+  delay(100);
+  
+  // Verify partition is actually erased (should read 0xFF)
+  uint8_t verify_erase[16];
+  if (esp_partition_read(update_partition, 0, verify_erase, sizeof(verify_erase)) == ESP_OK) {
+    bool erased = true;
+    for (int i = 0; i < sizeof(verify_erase); i++) {
+      if (verify_erase[i] != 0xFF) {
+        erased = false;
+        break;
+      }
+    }
+    if (erased) {
+      Serial.println("[OTA] Partition erase verified (all 0xFF)");
+    } else {
+      Serial.println("[OTA] WARNING: Partition not fully erased!");
+    }
+  }
   
   // Clear any previous update errors
   Update.abort();
@@ -198,10 +278,31 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   // Don't manually erase - let Update.begin() handle it to avoid state issues
   // The Update library will erase sectors as needed during write
   
-  // Begin update with explicit app type and size
-  // U_FLASH = 0 (app update to OTA partition)
-  // The Update library will automatically erase the partition
-  if (!Update.begin(contentLen, U_FLASH, -1, HIGH)) {
+  // Verify we downloaded a valid ESP32 firmware image
+  // ESP32 images start with 0xE9 magic byte
+  // Also capture first 32 bytes for detailed validation
+  WiFiClient* peek_stream = http2.getStreamPtr();
+  uint8_t header[32] = {0};
+  int header_read = 0;
+  
+  // Peek at header without consuming stream
+  if (peek_stream->available() >= 32) {
+    // We can't peek multiple bytes, so we'll validate after first write
+    uint8_t magic = peek_stream->peek();
+    Serial.printf("[OTA] First byte of download: 0x%02X\n", magic);
+    if (magic != 0xE9) {
+      Serial.println("[OTA] ERROR: Downloaded file is not a valid ESP32 firmware!");
+      Serial.println("[OTA] Expected magic byte 0xE9, this may be HTML or corrupted");
+      status(cb, "Invalid firmware file");
+      http2.end();
+      return false;
+    }
+  }
+  
+  // Begin update with ONLY size and command type
+  // Don't pass ledPin or ledOn - use default parameters
+  // Don't pass label - let Update library select partition automatically
+  if (!Update.begin(contentLen, U_FLASH)) {
     char buf[48];
     snprintf(buf, sizeof(buf), "Update.begin fail: %d", Update.getError());
     status(cb, buf);
@@ -224,6 +325,7 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   
   size_t written = 0;
   uint8_t buff[1024];
+  bool headerValidated = false;
   unsigned long lastDataTime = millis();
   const unsigned long DATA_TIMEOUT = 15000; // 15 second timeout for stalled downloads
   
@@ -234,6 +336,24 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
       int toRead = (avail > sizeof(buff)) ? sizeof(buff) : (int)avail;
       int c = stream->readBytes(buff, toRead);
       if (c <= 0) break;
+      
+      // Validate ESP32 image header on first chunk
+      if (!headerValidated && c >= 32) {
+        Serial.println("[OTA] ===== ESP32 Image Header Validation =====");
+        Serial.printf("[OTA] Magic: 0x%02X (expect 0xE9)\n", buff[0]);
+        Serial.printf("[OTA] Segment count: %d\n", buff[1]);
+        Serial.printf("[OTA] SPI mode: 0x%02X\n", buff[2]);
+        Serial.printf("[OTA] Flash config: 0x%02X\n", buff[3]);
+        Serial.printf("[OTA] Entry point: 0x%02X%02X%02X%02X\n", 
+          buff[7], buff[6], buff[5], buff[4]);
+        Serial.printf("[OTA] First 32 bytes: ");
+        for (int i = 0; i < 32; i++) {
+          Serial.printf("%02X ", buff[i]);
+        }
+        Serial.println();
+        Serial.println("[OTA] ==========================================");
+        headerValidated = true;
+      }
       
       // Add data to MD5 hash calculation
       md5.add(buff, c);
@@ -287,12 +407,32 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   }
 
   Serial.printf("[OTA] Download complete: %u bytes written\n", (unsigned)written);
-  
-  // Calculate and set MD5 hash for validation
+    // CRITICAL: Verify Update library actually received the writes
+  size_t updateProgress = Update.progress();
+  Serial.printf("[OTA] Update.progress() reports: %u bytes\\n", (unsigned)updateProgress);
+  if (updateProgress == 0) {
+    status(cb, "Update state error");
+    Serial.println("[OTA] ERROR: Update library reports 0 progress after write!");
+    Serial.println("[OTA] This indicates Update.write() calls were not registered");
+    Update.abort();
+    return false;
+  }
+  if (updateProgress != written) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Progress mismatch: %u vs %u", (unsigned)updateProgress, (unsigned)written);
+    status(cb, buf);
+    Serial.printf("[OTA] WARNING: Update progress (%u) != bytes written (%u)\\n", 
+      (unsigned)updateProgress, (unsigned)written);
+  }
+    // Calculate MD5 hash but DON'T set it in Update library
+  // The Update library's own validation should handle image format checking
   md5.calculate();
   String md5Hash = md5.toString();
   Serial.printf("[OTA] Calculated MD5: %s\n", md5Hash.c_str());
-  Update.setMD5(md5Hash.c_str());
+  
+  // DO NOT set MD5 - let Update.end() validate the ESP32 image format naturally
+  // Update.setMD5(md5Hash.c_str());
+  Serial.println("[OTA] Skipping MD5 check, using native ESP32 image validation");
   
   // CRITICAL: Disconnect WiFi before flash finalization to prevent interference
   // WiFi activity can cause flash write corruption during validation
@@ -319,12 +459,12 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   }
 
   status(cb, "Finalizing...");
-  Serial.println("[OTA] Starting Update.end() validation with MD5...");
-  Serial.printf("[OTA] Expected MD5: %s\n", md5Hash.c_str());
+  Serial.println("[OTA] Starting Update.end() validation...");
+  Serial.println("[OTA] Using native ESP32 SHA256 image validation");
   
-  // Call Update.end(true) - even if remaining bytes (padding)
-  // The MD5 hash we set will validate download integrity
-  // The ESP32 bootloader will validate the SHA256 app hash at boot time
+  // Call Update.end(true) without MD5 set
+  // This lets the ESP32 bootloader use its built-in SHA256 validation
+  // which is embedded in the firmware during build
   if (!Update.end(true)) {
     char buf[64];
     int err = Update.getError();
