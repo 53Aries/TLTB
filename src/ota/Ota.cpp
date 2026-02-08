@@ -321,6 +321,8 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   
   size_t written = 0;
   uint8_t buff[1024];
+  uint8_t lastChunk[128]; // Buffer to capture last bytes including SHA256
+  size_t lastChunkSize = 0;
   bool headerValidated = false;
   unsigned long lastDataTime = millis();
   const unsigned long DATA_TIMEOUT = 15000; // 15 second timeout for stalled downloads
@@ -333,26 +335,60 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
       int c = stream->readBytes(buff, toRead);
       if (c <= 0) break;
       
-      // Validate ESP32 image header on first chunk
-      if (!headerValidated && c >= 32) {
-        Serial.println("[OTA] ===== ESP32 Image Header Validation =====");
+      // Validate ESP32 image header and ALL segment headers on first chunk
+      if (!headerValidated && written == 0 && c >= 256) {
+        Serial.println("[OTA] ===== ESP32 Image Header & Segments =====");
         Serial.printf("[OTA] Magic: 0x%02X (expect 0xE9)\n", buff[0]);
-        Serial.printf("[OTA] Segment count: %d\n", buff[1]);
+        uint8_t segmentCount = buff[1];
+        Serial.printf("[OTA] Segment count: %d\n", segmentCount);
         Serial.printf("[OTA] SPI mode: 0x%02X\n", buff[2]);
         Serial.printf("[OTA] Flash config: 0x%02X\n", buff[3]);
         Serial.printf("[OTA] Entry point: 0x%02X%02X%02X%02X\n", 
           buff[7], buff[6], buff[5], buff[4]);
-        Serial.printf("[OTA] First 32 bytes: ");
-        for (int i = 0; i < 32; i++) {
-          Serial.printf("%02X ", buff[i]);
+        
+        // Parse segment headers (start at offset 24 after main header)
+        size_t offset = 24;
+        Serial.println("[OTA] --- Segment Headers ---");
+        for (int i = 0; i < segmentCount && offset + 8 <= c; i++) {
+          uint32_t loadAddr = (buff[offset+3] << 24) | (buff[offset+2] << 16) | 
+                              (buff[offset+1] << 8) | buff[offset];
+          uint32_t segLen = (buff[offset+7] << 24) | (buff[offset+6] << 16) | 
+                            (buff[offset+5] << 8) | buff[offset+4];
+          Serial.printf("[OTA] Seg %d: addr=0x%08X len=%u (0x%08X) at offset %u\n", 
+            i, loadAddr, segLen, segLen, offset);
+          
+          // Validate segment length is reasonable
+          if (segLen > 0x200000) { // > 2MB is definitely wrong
+            Serial.printf("[OTA] ERROR: Segment %d length is INVALID!\n", i);
+          }
+          
+          offset += 8 + segLen; // Next segment header
         }
-        Serial.println();
+        Serial.printf("[OTA] Total image size estimate: %u bytes\n", offset + 1 + 32); // +1 checksum +32 SHA256
         Serial.println("[OTA] ==========================================");
+        headerValidated = true;
+      } else if (!headerValidated && c >= 32) {
+        // Fallback for smaller first chunk
+        Serial.println("[OTA] ===== ESP32 Image Header (basic) =====");
+        Serial.printf("[OTA] Magic: 0x%02X\n", buff[0]);
+        Serial.printf("[OTA] Segment count: %d\n", buff[1]);
+        Serial.printf("[OTA] Entry: 0x%02X%02X%02X%02X\n", buff[7], buff[6], buff[5], buff[4]);
+        Serial.println("[OTA] (Chunk too small for full segment analysis)");
         headerValidated = true;
       }
       
       // Add data to MD5 hash calculation
       md5.add(buff, c);
+      
+      // Capture last chunk of data to examine SHA256 hash area
+      if (c <= sizeof(lastChunk)) {
+        memcpy(lastChunk, buff, c);
+        lastChunkSize = c;
+      } else {
+        // Save only last 128 bytes if chunk is larger
+        memcpy(lastChunk, buff + c - sizeof(lastChunk), sizeof(lastChunk));
+        lastChunkSize = sizeof(lastChunk);
+      }
       
       size_t w = Update.write(buff, c);
       if (w != (size_t)c) {
@@ -403,6 +439,25 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   }
 
   Serial.printf("[OTA] Download complete: %u bytes written\n", (unsigned)written);
+  
+  // Dump last chunk to examine SHA256 hash area
+  Serial.println("[OTA] ===== Last bytes of firmware =====");
+  Serial.printf("[OTA] Last chunk size: %u bytes\n", lastChunkSize);
+  if (lastChunkSize >= 64) {
+    Serial.print("[OTA] Last 64 bytes (incl SHA256): ");
+    for (size_t i = lastChunkSize - 64; i < lastChunkSize; i++) {
+      Serial.printf("%02X ", lastChunk[i]);
+      if ((i - (lastChunkSize - 64) + 1) % 16 == 0) Serial.println();
+    }
+    Serial.println("[OTA] ======================================");
+  } else {
+    Serial.printf("[OTA] Last %u bytes: ", lastChunkSize);
+    for (size_t i = 0; i < lastChunkSize; i++) {
+      Serial.printf("%02X ", lastChunk[i]);
+    }
+    Serial.println("\n[OTA] ======================================");
+  }
+  
     // CRITICAL: Verify Update library actually received the writes
   size_t updateProgress = Update.progress();
   Serial.printf("[OTA] Update.progress() reports: %u bytes\\n", (unsigned)updateProgress);
