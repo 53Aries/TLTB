@@ -247,6 +247,13 @@ void TltbBleService::requestImmediateStatus() {
   _forceNextStatus = true;
 }
 
+void TltbBleService::syncStateOnConnection() {
+  // Force immediate status update and reset timing to ensure fresh sync
+  _forceNextStatus = true;
+  _lastNotifyMs = 0;
+  ESP_LOGI(kBleLogTag, "State sync requested");
+}
+
 void TltbBleService::stopAdvertising() {
   if (!_initialized) {
     return;
@@ -362,6 +369,12 @@ void TltbBleService::handleClientConnect(NimBLEServer* server) {
   _mtuNegotiated = false;  // Reset on new connection
   _negotiatedMtu = 23;     // Default until negotiation completes
   ESP_LOGI(kBleLogTag, "Client connected, waiting for MTU negotiation");
+  
+  // Force immediate status update on connection to sync relay states
+  // This ensures the app always has current state, even after reconnect
+  _forceNextStatus = true;
+  _lastNotifyMs = 0;  // Allow immediate send
+  ESP_LOGI(kBleLogTag, "Immediate status sync queued for new connection");
 }
 
 void TltbBleService::handleClientDisconnect() {
