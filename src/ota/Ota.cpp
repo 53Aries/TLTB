@@ -216,6 +216,61 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   // 4) Flash using Arduino Update library
   WiFiClient* stream = http2.getStreamPtr();
   
+  // CRITICAL: Reuse the update_partition we identified earlier
+  // Verify it's valid and erase it for a clean slate
+  if (!update_partition) {
+    status(cb, "No OTA partition");
+    Serial.println("[OTA] ERROR: No OTA partition available!");
+    http2.end();
+    return false;
+  }
+  
+  Serial.printf("[OTA] Target partition: %s at 0x%x (size: %u)\n",
+    update_partition->label, update_partition->address, update_partition->size);
+  
+  // Verify partition is writeable
+  if (update_partition->size < (size_t)contentLen) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Firmware too large: %d > %u", contentLen, update_partition->size);
+    status(cb, buf);
+    Serial.printf("[OTA] ERROR: %s\n", buf);
+    http2.end();
+    return false;
+  }
+  
+  // CRITICAL: Erase the entire target partition before Update.begin()
+  // This prevents residual data from corrupting validation
+  Serial.println("[OTA] Erasing target partition...");
+  status(cb, "Erasing...");
+  esp_err_t erase_err = esp_partition_erase_range(update_partition, 0, update_partition->size);
+  if (erase_err != ESP_OK) {
+    char buf[48];
+    snprintf(buf, sizeof(buf), "Erase failed: %d", erase_err);
+    status(cb, buf);
+    Serial.printf("[OTA] ERROR: Partition erase failed: %d\n", erase_err);
+    http2.end();
+    return false;
+  }
+  Serial.println("[OTA] Partition erased successfully");
+  delay(100);
+  
+  // Verify partition is actually erased (should read 0xFF)
+  uint8_t verify_erase[16];
+  if (esp_partition_read(update_partition, 0, verify_erase, sizeof(verify_erase)) == ESP_OK) {
+    bool erased = true;
+    for (int i = 0; i < sizeof(verify_erase); i++) {
+      if (verify_erase[i] != 0xFF) {
+        erased = false;
+        break;
+      }
+    }
+    if (erased) {
+      Serial.println("[OTA] Partition erase verified (all 0xFF)");
+    } else {
+      Serial.println("[OTA] WARNING: Partition not fully erased!");
+    }
+  }
+  
   // Clear any previous update errors
   Update.abort();
   delay(100);
@@ -244,10 +299,10 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     }
   }
   
-  // Begin update with explicit app type and size
-  // U_FLASH = 0 (app update to OTA partition)
-  // The Update library will automatically erase the partition
-  if (!Update.begin(contentLen, U_FLASH, -1, HIGH)) {
+  // Begin update with ONLY size and command type
+  // Don't pass ledPin or ledOn - use default parameters
+  // Don't pass label - let Update library select partition automatically
+  if (!Update.begin(contentLen, U_FLASH)) {
     char buf[48];
     snprintf(buf, sizeof(buf), "Update.begin fail: %d", Update.getError());
     status(cb, buf);
@@ -352,8 +407,24 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   }
 
   Serial.printf("[OTA] Download complete: %u bytes written\n", (unsigned)written);
-  
-  // Calculate MD5 hash but DON'T set it in Update library
+    // CRITICAL: Verify Update library actually received the writes
+  size_t updateProgress = Update.progress();
+  Serial.printf("[OTA] Update.progress() reports: %u bytes\\n", (unsigned)updateProgress);
+  if (updateProgress == 0) {
+    status(cb, "Update state error");
+    Serial.println("[OTA] ERROR: Update library reports 0 progress after write!");
+    Serial.println("[OTA] This indicates Update.write() calls were not registered");
+    Update.abort();
+    return false;
+  }
+  if (updateProgress != written) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Progress mismatch: %u vs %u", (unsigned)updateProgress, (unsigned)written);
+    status(cb, buf);
+    Serial.printf("[OTA] WARNING: Update progress (%u) != bytes written (%u)\\n", 
+      (unsigned)updateProgress, (unsigned)written);
+  }
+    // Calculate MD5 hash but DON'T set it in Update library
   // The Update library's own validation should handle image format checking
   md5.calculate();
   String md5Hash = md5.toString();
