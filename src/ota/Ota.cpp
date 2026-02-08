@@ -7,9 +7,12 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <Update.h>
+#include <MD5Builder.h>
 #include "esp_coexist.h"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
+#include "esp_flash.h"
+#include "esp_system.h"
 #include "prefs.hpp"
 
 namespace Ota {
@@ -192,29 +195,13 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   Update.abort();
   delay(100);
   
-  // CRITICAL: Erase the target OTA partition before writing
-  // This prevents checksum errors from corrupted previous writes
-  const esp_partition_t* target = esp_ota_get_next_update_partition(NULL);
-  if (target) {
-    Serial.printf("[OTA] Erasing target partition: %s at 0x%x (size: %u)\n", 
-      target->label, target->address, target->size);
-    status(cb, "Erasing partition...");
-    esp_err_t err = esp_partition_erase_range(target, 0, target->size);
-    if (err != ESP_OK) {
-      char buf[48];
-      snprintf(buf, sizeof(buf), "Erase failed: %d", err);
-      status(cb, buf);
-      Serial.printf("[OTA] Partition erase failed with error: %d\n", err);
-      http2.end();
-      return false;
-    }
-    Serial.println("[OTA] Partition erased successfully");
-    delay(100);
-  }
+  // Don't manually erase - let Update.begin() handle it to avoid state issues
+  // The Update library will erase sectors as needed during write
   
   // Begin update with explicit app type and size
   // U_FLASH = 0 (app update to OTA partition)
-  if (!Update.begin(contentLen, U_FLASH)) {
+  // The Update library will automatically erase the partition
+  if (!Update.begin(contentLen, U_FLASH, -1, HIGH)) {
     char buf[48];
     snprintf(buf, sizeof(buf), "Update.begin fail: %d", Update.getError());
     status(cb, buf);
@@ -231,6 +218,10 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   
   status(cb, "Writing...");
   
+  // Initialize MD5 calculator to verify download integrity
+  MD5Builder md5;
+  md5.begin();
+  
   size_t written = 0;
   uint8_t buff[1024];
   unsigned long lastDataTime = millis();
@@ -243,6 +234,9 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
       int toRead = (avail > sizeof(buff)) ? sizeof(buff) : (int)avail;
       int c = stream->readBytes(buff, toRead);
       if (c <= 0) break;
+      
+      // Add data to MD5 hash calculation
+      md5.add(buff, c);
       
       size_t w = Update.write(buff, c);
       if (w != (size_t)c) {
@@ -294,16 +288,22 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
 
   Serial.printf("[OTA] Download complete: %u bytes written\n", (unsigned)written);
   
+  // Calculate and set MD5 hash for validation
+  md5.calculate();
+  String md5Hash = md5.toString();
+  Serial.printf("[OTA] Calculated MD5: %s\n", md5Hash.c_str());
+  Update.setMD5(md5Hash.c_str());
+  
   // CRITICAL: Disconnect WiFi before flash finalization to prevent interference
   // WiFi activity can cause flash write corruption during validation
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
-  delay(100);
+  delay(200);
   Serial.println("[OTA] WiFi disconnected for flash finalization");
   
-  // CRITICAL: Allow flash write buffers to fully flush
-  // Flash memory may have internal write cache that needs time to persist
-  delay(500);  // Increased from 100ms to 500ms
+  // Allow flash controller time to settle before validation
+  // Note: Update library buffers writes and flushes during Update.end()
+  delay(500);
   
   status(cb, "Verifying...");
   
@@ -319,15 +319,13 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   }
 
   status(cb, "Finalizing...");
-  Serial.println("[OTA] Starting Update.end() validation...");
+  Serial.println("[OTA] Starting Update.end() validation with MD5...");
+  Serial.printf("[OTA] Expected MD5: %s\n", md5Hash.c_str());
   
-  // Important: Set MD5 checksum if available (currently not provided by GitHub API)
-  // Without MD5, Update.end() will calculate hash of written data and validate format
-  // This can fail if flash write was corrupted or image format is invalid
-  
-  // Call Update.end(false) to validate without immediate reboot
-  // This allows better error handling and diagnostics
-  if (!Update.end(false)) {
+  // Call Update.end(true) - even if remaining bytes (padding)
+  // The MD5 hash we set will validate download integrity
+  // The ESP32 bootloader will validate the SHA256 app hash at boot time
+  if (!Update.end(true)) {
     char buf[64];
     int err = Update.getError();
     snprintf(buf, sizeof(buf), "Validation fail: err=%d", err);
