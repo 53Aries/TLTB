@@ -1,14 +1,23 @@
-// File Overview: Application entry point for the Trailer Lighting Test Box; initializes
-// hardware, drives the UI, samples telemetry, and coordinates protection plus relay logic.
+// =============================================================================
+// TLTB - Trailer Lighting Test Box
+// Main application entry point
+// 
+// Responsibilities:
+//   - Hardware initialization (display, sensors, RF, BLE)
+//   - UI rendering and user input processing
+//   - Telemetry sampling and protection monitoring
+//   - Relay control coordination
+// =============================================================================
+
 #include <Arduino.h>
 #include <SPI.h>
 #include <Adafruit_ST7735.h>
 
-// ESP-IDF C headers already provide their own extern "C" guards; direct includes keep this cleaner.
+// ESP-IDF headers
 #include "esp_task_wdt.h"
 #include "esp_ota_ops.h"
 #include "esp_log.h"
-#include "soc/rtc_cntl_reg.h"  // For brownout detector control
+#include "soc/rtc_cntl_reg.h"
 
 #include <WiFi.h>
 #include "esp_coexist.h"
@@ -24,29 +33,46 @@
 #include "power/Protector.hpp"
 #include "ble/TltbBleService.hpp"
 
-// ---------------- Globals ----------------
-static Adafruit_ST7735* tft = nullptr;   // shared SPI
-static DisplayUI* ui = nullptr;
-Preferences prefs;
-static Telemetry tele{};
-static bool g_startupGuard = false; // Prevents relay activation until 1p8t is cycled to OFF
-static TltbBleService g_bleService;
-static uint32_t g_faultMask = 0;
-static constexpr bool kBypassInaPresenceCheck = true; // Temporary bypass when sensors are disconnected
-static int8_t g_bleActiveRelay = -1; // Track last BLE-activated relay (-1 = none)
+// =============================================================================
+// Global State
+// =============================================================================
 
-// Cooldown timer state (20.5A usage limit)
-static uint32_t g_highCurrentStartMs = 0; // When >20.5A current started (0=not active)
-static uint32_t g_cooldownStartMs = 0;    // When cooldown period started (0=not in cooldown)
-static constexpr uint32_t HIGH_CURRENT_LIMIT_MS = 120000; // 120 seconds
-static constexpr uint32_t COOLDOWN_PERIOD_MS = 120000;     // 120 seconds
-static constexpr float HIGH_CURRENT_THRESHOLD = 20.5f;     // 20.5 amps
+static Adafruit_ST7735* tft = nullptr;    // Shared SPI display
+static DisplayUI* ui = nullptr;            // UI controller
+Preferences prefs;                         // NVS storage
+static Telemetry tele{};                   // Telemetry data
+static TltbBleService g_bleService;        // BLE service
+static uint32_t g_faultMask = 0;           // Active fault flags
 
-// LEDC (backlight)
+// Startup guard: prevents relay activation until 1p8t switch is cycled to OFF
+static bool g_startupGuard = false;
+
+// BLE relay tracking: which relay was last activated via BLE (-1 = none)
+static int8_t g_bleActiveRelay = -1;
+
+// Temporary bypass for INA226 presence check when sensors are disconnected
+static constexpr bool kBypassInaPresenceCheck = true;
+
+// =============================================================================
+// High Current Monitoring & Cooldown
+// Enforces 20.5A limit: 120 seconds on, 120 seconds cooldown
+// =============================================================================
+
+static uint32_t g_highCurrentStartMs = 0;  // Timestamp when >20.5A started (0 = inactive)
+static uint32_t g_cooldownStartMs = 0;     // Timestamp when cooldown started (0 = not in cooldown)
+
+static constexpr uint32_t HIGH_CURRENT_LIMIT_MS = 120000;  // Maximum high current duration (seconds)
+static constexpr uint32_t COOLDOWN_PERIOD_MS = 120000;     // Required cooldown time (2 minutes)
+static constexpr float HIGH_CURRENT_THRESHOLD = 20.5f;     // Current threshold (amps)
+
+// =============================================================================
+// Display Backlight Control
+// =============================================================================
+
 static const int BL_CHANNEL = 0;
-
-// Backlight
-static void setBacklight(uint8_t v){ ledcWrite(BL_CHANNEL, v); }
+static void setBacklight(uint8_t brightness) { 
+  ledcWrite(BL_CHANNEL, brightness); 
+}
 
 // -------------------------------------------------------------------
 // ----------- Encoder (ISR-based, fast + debounced) -----------------
