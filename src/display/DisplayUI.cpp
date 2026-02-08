@@ -126,7 +126,15 @@ static const char* rotaryLabel() {
 }
 
 // ACTIVE line mirrors rotary intent (deterministic & safe)
+static String g_activeLabelOverride = ""; // Override from main.cpp (for BLE)
+
 static void getActiveRelayStatus(String& out){
+  // If main.cpp set an override (e.g., for BLE control), use it
+  if (g_activeLabelOverride.length() > 0) {
+    out = g_activeLabelOverride;
+    return;
+  }
+  
   const char* rot = rotaryLabel();
   if (!strcmp(rot, "OFF")) { out = "None"; return; }
   if (!strcmp(rot, "N/A")) { out = "N/A";  return; }
@@ -234,6 +242,14 @@ void DisplayUI::setFaultMask(uint32_t m){
     rebuildFaultText();
     _faultScroll=0;
     _needRedraw=true;
+  }
+}
+
+void DisplayUI::setActiveLabel(const char* label) {
+  if (label && label[0] != '\0') {
+    g_activeLabelOverride = label;
+  } else {
+    g_activeLabelOverride = "";
   }
 }
 

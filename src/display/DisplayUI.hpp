@@ -61,6 +61,7 @@ public:
 
   void showStatus(const Telemetry& t);
   void setFaultMask(uint32_t m);
+  void setActiveLabel(const char* label); // Override active relay display (for BLE control)
 
   // OCP modal
   bool protectionAlarm(const char* title, const char* line1, const char* line2 = nullptr);

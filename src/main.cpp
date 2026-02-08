@@ -33,6 +33,7 @@ static bool g_startupGuard = false; // Prevents relay activation until 1p8t is c
 static TltbBleService g_bleService;
 static uint32_t g_faultMask = 0;
 static constexpr bool kBypassInaPresenceCheck = true; // Temporary bypass when sensors are disconnected
+static int8_t g_bleActiveRelay = -1; // Track last BLE-activated relay (-1 = none)
 
 // Cooldown timer state (20.5A usage limit)
 static uint32_t g_highCurrentStartMs = 0; // When >20.5A current started (0=not active)
@@ -133,6 +134,12 @@ static void enforceRotaryMode(RotaryMode m) {
     for (int i = 0; i < (int)R_ENABLE; ++i) relayOff(i);
   };
 
+  // Clear BLE active relay tracking when not in RF mode
+  // (BLE can only control relays in RF mode, so this keeps display accurate)
+  if (m != MODE_RF_ENABLE) {
+    g_bleActiveRelay = -1;
+  }
+
   switch (m) {
     case MODE_ALL_OFF:
       #ifndef DEV_MODE
@@ -228,15 +235,32 @@ static void handleBleRelayCommand(RelayIndex idx, bool desiredOn) {
   if (desiredOn) {
     Serial.printf("[BLE] Turning relay %d ON\n", (int)idx);
     relayOn(idx);
+    g_bleActiveRelay = (int8_t)idx; // Track active BLE relay for display
   } else {
     Serial.printf("[BLE] Turning relay %d OFF\n", (int)idx);
     relayOff(idx);
+    // Clear active relay if this was the active one
+    if (g_bleActiveRelay == (int8_t)idx) {
+      g_bleActiveRelay = -1;
+    }
   }
 }
 
 static const char* describeActiveLabel(RotaryMode mode) {
   if (g_startupGuard) {
     return "SAFE";
+  }
+
+  // Check if BLE has an active relay - takes priority over rotary position
+  // This allows the display to show what's actually on when controlled via app
+  if (g_bleActiveRelay >= (int)R_LEFT && g_bleActiveRelay < (int)R_ENABLE) {
+    // Verify the relay is actually still on
+    if (relayIsOn(g_bleActiveRelay)) {
+      return relayName(static_cast<RelayIndex>(g_bleActiveRelay));
+    } else {
+      // Relay was turned off by other means, clear tracking
+      g_bleActiveRelay = -1;
+    }
   }
 
   switch (mode) {
@@ -757,6 +781,10 @@ void loop() {
 
   g_faultMask = computeFaultMask();
   ui->setFaultMask(g_faultMask);
+  
+  // Update display with current active label (includes BLE tracking)
+  ui->setActiveLabel(describeActiveLabel(g_stableRotaryMode));
+  
   ui->tick(tele);
 
   // OUTV modal (single-shot per continuous fault; re-armed after healthy period)
