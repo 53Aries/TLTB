@@ -6,10 +6,6 @@ export type PermissionStatus = 'checking' | 'granted' | 'denied' | 'blocked';
 export const useBlePermissions = () => {
   const [status, setStatus] = useState<PermissionStatus>('checking');
 
-  useEffect(() => {
-    requestPermissions();
-  }, []);
-
   const requestPermissions = async () => {
     if (Platform.OS !== 'android') {
       setStatus('granted');
@@ -92,6 +88,10 @@ export const useBlePermissions = () => {
       );
     }
   };
+
+  useEffect(() => {
+    requestPermissions();
+  }, []);
 
   return {
     status,

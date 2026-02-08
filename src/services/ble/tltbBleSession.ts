@@ -26,6 +26,7 @@ interface SessionOptions {
 
 const RSSI_INTERVAL_MS = 2000;
 const RELAY_ACK_TIMEOUT_MS = 3000;
+const STATUS_HEARTBEAT_TIMEOUT_MS = 5000; // Detect stale connection if no status for 5 seconds
 
 interface PendingRelayAck {
   desiredState: boolean;
@@ -44,6 +45,8 @@ export const createTltbBleSession = (
   let disconnectSubscription: Subscription | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let rssiTimer: ReturnType<typeof setInterval> | null = null;
+  let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastStatusTimestamp: number = 0;
   let stopped = false;
   let preferredDeviceId = options.initialKnownDevice?.id ?? null;
   let rememberedDevice = options.initialKnownDevice ?? null;
@@ -106,6 +109,32 @@ export const createTltbBleSession = (
       clearInterval(rssiTimer);
       rssiTimer = null;
     }
+  };stopHeartbeatMonitor = () => {
+    if (heartbeatTimer) {
+      clearTimeout(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  };
+
+  const startHeartbeatMonitor = () => {
+    stopHeartbeatMonitor();
+    
+    const checkHeartbeat = () => {
+      const now = Date.now();
+      if (lastStatusTimestamp > 0 && now - lastStatusTimestamp > STATUS_HEARTBEAT_TIMEOUT_MS) {
+        console.warn('[BLE] Status heartbeat timeout - connection may be stale');
+        // Connection is stale, trigger reconnect
+        handlers.onConnectionChange('disconnected');
+        cleanupDevice().finally(scheduleReconnect);
+        return;
+      }
+      
+      // Check again in STATUS_HEARTBEAT_TIMEOUT_MS
+      heartbeatTimer = setTimeout(checkHeartbeat, STATUS_HEARTBEAT_TIMEOUT_MS);
+    };
+    
+    // Start monitoring
+    heartbeatTimer = setTimeout(checkHeartbeat, STATUS_HEARTBEAT_TIMEOUT_MS);
   };
 
   const clearReconnectTimer = () => {
@@ -115,6 +144,10 @@ export const createTltbBleSession = (
     }
   };
 
+  const cleanupDevice = async () => {
+    stopRssiMonitor();
+    stopHeartbeatMonitor();
+    lastStatusTimestamp = 0
   const cleanupDevice = async () => {
     stopRssiMonitor();
     statusSubscription?.remove();
@@ -170,6 +203,9 @@ export const createTltbBleSession = (
             ...(rememberedDevice ?? {
               id: device.id,
               name: device.name ?? null,
+        // Update heartbeat timestamp
+        lastStatusTimestamp = Date.now();
+
               lastSeenTs: Date.now(),
             }),
             lastRssi: rssi,
@@ -211,6 +247,7 @@ export const createTltbBleSession = (
         console.log('[BLE] Parsed status successfully:', parsed.snapshot.mode, parsed.snapshot.activeLabel);
 
         handlers.onStatus(parsed.snapshot);
+      startHeartbeatMonitor(); // Monitor connection health
         Object.entries(parsed.relayStates).forEach(([id, isOn]) => {
           if (typeof isOn === 'boolean') {
             const relayId = id as RelayId;
@@ -229,6 +266,16 @@ export const createTltbBleSession = (
     try {
       const connected = await device.connect();
       await connected.discoverAllServicesAndCharacteristics();
+      
+      // Request larger MTU for sending larger command payloads and receiving status notifications
+      // iOS ignores this (always uses 185), Android will negotiate up to 512
+      try {
+        const mtuResult = await connected.requestMTU(512);
+        console.log('[BLE] MTU negotiated:', mtuResult);
+      } catch (mtuError) {
+        console.warn('[BLE] MTU negotiation failed (may not be supported on iOS):', mtuError);
+      }
+      
       activeDevice = connected;
       handlers.onConnectionChange('connected');
 
@@ -241,6 +288,15 @@ export const createTltbBleSession = (
       });
 
       monitorStatus(connected);
+      
+      // CRITICAL: Request immediate state sync after connection established
+      // This ensures relay states are always accurate, even after reconnect
+      console.log('[BLE] Requesting state sync after connection...');
+      setTimeout(() => {
+        sendCommand({ type: 'refresh' })
+          .then(() => console.log('[BLE] State sync requested successfully'))
+          .catch((error) => console.warn('[BLE] State sync request failed:', error));
+      }, 100); // Small delay to ensure monitor is ready
     } catch (error) {
       console.warn('[BLE] Failed to connect', error);
       handlers.onConnectionChange('disconnected');
