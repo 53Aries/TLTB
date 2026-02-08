@@ -216,8 +216,7 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   // 4) Flash using Arduino Update library
   WiFiClient* stream = http2.getStreamPtr();
   
-  // CRITICAL: Reuse the update_partition we identified earlier
-  // Verify it's valid and erase it for a clean slate
+  // Verify we have a valid OTA partition
   if (!update_partition) {
     status(cb, "No OTA partition");
     Serial.println("[OTA] ERROR: No OTA partition available!");
@@ -228,7 +227,7 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   Serial.printf("[OTA] Target partition: %s at 0x%x (size: %u)\n",
     update_partition->label, update_partition->address, update_partition->size);
   
-  // Verify partition is writeable
+  // Verify partition is large enough
   if (update_partition->size < (size_t)contentLen) {
     char buf[64];
     snprintf(buf, sizeof(buf), "Firmware too large: %d > %u", contentLen, update_partition->size);
@@ -238,45 +237,9 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     return false;
   }
   
-  // CRITICAL: Erase the entire target partition before Update.begin()
-  // This prevents residual data from corrupting validation
-  Serial.println("[OTA] Erasing target partition...");
-  status(cb, "Erasing...");
-  esp_err_t erase_err = esp_partition_erase_range(update_partition, 0, update_partition->size);
-  if (erase_err != ESP_OK) {
-    char buf[48];
-    snprintf(buf, sizeof(buf), "Erase failed: %d", erase_err);
-    status(cb, buf);
-    Serial.printf("[OTA] ERROR: Partition erase failed: %d\n", erase_err);
-    http2.end();
-    return false;
-  }
-  Serial.println("[OTA] Partition erased successfully");
-  delay(100);
-  
-  // Verify partition is actually erased (should read 0xFF)
-  uint8_t verify_erase[16];
-  if (esp_partition_read(update_partition, 0, verify_erase, sizeof(verify_erase)) == ESP_OK) {
-    bool erased = true;
-    for (int i = 0; i < sizeof(verify_erase); i++) {
-      if (verify_erase[i] != 0xFF) {
-        erased = false;
-        break;
-      }
-    }
-    if (erased) {
-      Serial.println("[OTA] Partition erase verified (all 0xFF)");
-    } else {
-      Serial.println("[OTA] WARNING: Partition not fully erased!");
-    }
-  }
-  
   // Clear any previous update errors
   Update.abort();
   delay(100);
-  
-  // Don't manually erase - let Update.begin() handle it to avoid state issues
-  // The Update library will erase sectors as needed during write
   
   // Verify we downloaded a valid ESP32 firmware image
   // ESP32 images start with 0xE9 magic byte
