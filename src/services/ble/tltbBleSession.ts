@@ -109,7 +109,9 @@ export const createTltbBleSession = (
       clearInterval(rssiTimer);
       rssiTimer = null;
     }
-  };stopHeartbeatMonitor = () => {
+  };
+
+  const stopHeartbeatMonitor = () => {
     if (heartbeatTimer) {
       clearTimeout(heartbeatTimer);
       heartbeatTimer = null;
@@ -147,9 +149,7 @@ export const createTltbBleSession = (
   const cleanupDevice = async () => {
     stopRssiMonitor();
     stopHeartbeatMonitor();
-    lastStatusTimestamp = 0
-  const cleanupDevice = async () => {
-    stopRssiMonitor();
+    lastStatusTimestamp = 0;
     statusSubscription?.remove();
     statusSubscription = null;
     disconnectSubscription?.remove();
@@ -203,9 +203,6 @@ export const createTltbBleSession = (
             ...(rememberedDevice ?? {
               id: device.id,
               name: device.name ?? null,
-        // Update heartbeat timestamp
-        lastStatusTimestamp = Date.now();
-
               lastSeenTs: Date.now(),
             }),
             lastRssi: rssi,
