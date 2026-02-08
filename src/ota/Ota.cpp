@@ -237,6 +237,39 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     return false;
   }
   
+  // CRITICAL: Erase the entire target partition before Update.begin()
+  // This ensures clean slate and was working successfully in v1.2.37
+  Serial.println("[OTA] Erasing target partition...");
+  status(cb, "Erasing...");
+  esp_err_t erase_err = esp_partition_erase_range(update_partition, 0, update_partition->size);
+  if (erase_err != ESP_OK) {
+    char buf[48];
+    snprintf(buf, sizeof(buf), "Erase failed: %d", erase_err);
+    status(cb, buf);
+    Serial.printf("[OTA] ERROR: Partition erase failed: %d\n", erase_err);
+    http2.end();
+    return false;
+  }
+  Serial.println("[OTA] Partition erased successfully");
+  delay(100);
+  
+  // Verify partition is actually erased (should read 0xFF)
+  uint8_t verify_erase[16];
+  if (esp_partition_read(update_partition, 0, verify_erase, sizeof(verify_erase)) == ESP_OK) {
+    bool erased = true;
+    for (int i = 0; i < sizeof(verify_erase); i++) {
+      if (verify_erase[i] != 0xFF) {
+        erased = false;
+        break;
+      }
+    }
+    if (erased) {
+      Serial.println("[OTA] Partition erase verified (all 0xFF)");
+    } else {
+      Serial.println("[OTA] WARNING: Partition not fully erased!");
+    }
+  }
+  
   // Clear any previous update errors
   Update.abort();
   delay(100);
