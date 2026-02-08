@@ -781,6 +781,10 @@ void loop() {
 
   g_faultMask = computeFaultMask();
   ui->setFaultMask(g_faultMask);
+  
+  // Update display with current active label (includes BLE tracking)
+  ui->setActiveLabel(describeActiveLabel(g_stableRotaryMode));
+  
   ui->tick(tele);
 
   // OUTV modal (single-shot per continuous fault; re-armed after healthy period)
