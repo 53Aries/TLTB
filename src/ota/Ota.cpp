@@ -151,6 +151,10 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     status(cb, "Using fallback URL");
   }
 
+  // Log download details
+  Serial.printf("[OTA] Release tag: %s\n", tagName.c_str());
+  Serial.printf("[OTA] Download URL: %s\n", assetUrl);
+
   // 3) Download firmware
   status(cb, "Downloading...");
   WiFi.setTxPower(WIFI_POWER_19_5dBm); // Max power for reliable download
@@ -171,8 +175,17 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   
   code = http2.GET();
   if (code != HTTP_CODE_OK) {
-    char buf[32]; snprintf(buf, sizeof(buf), "Download HTTP %d", code);
+    char buf[64]; 
+    snprintf(buf, sizeof(buf), "Download HTTP %d", code);
     status(cb, buf);
+    Serial.printf("[OTA] HTTP error %d downloading firmware\n", code);
+    
+    // Check if we got HTML instead of binary (404 page)
+    if (code == HTTP_CODE_NOT_FOUND) {
+      Serial.println("[OTA] ERROR: firmware.bin not found in release!");
+      Serial.println("[OTA] Please create a GitHub release with firmware.bin attached");
+    }
+    
     http2.end();
     return false;
   }
@@ -184,9 +197,21 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     return false;
   }
   
+  // Sanity check: firmware should be at least 100KB and less than 2MB
+  if (contentLen < 100000 || contentLen > 2000000) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Invalid size: %d bytes", contentLen);
+    status(cb, buf);
+    Serial.printf("[OTA] ERROR: Suspicious firmware size: %d bytes\n", contentLen);
+    Serial.println("[OTA] May have downloaded HTML instead of binary");
+    http2.end();
+    return false;
+  }
+  
   char sizeBuf[32];
   snprintf(sizeBuf, sizeof(sizeBuf), "Size: %d bytes", contentLen);
   status(cb, sizeBuf);
+  Serial.printf("[OTA] Firmware size: %d bytes\n", contentLen);
 
   // 4) Flash using Arduino Update library
   WiFiClient* stream = http2.getStreamPtr();
@@ -197,6 +222,21 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   
   // Don't manually erase - let Update.begin() handle it to avoid state issues
   // The Update library will erase sectors as needed during write
+  
+  // Verify we downloaded a valid ESP32 firmware image
+  // ESP32 images start with 0xE9 magic byte
+  WiFiClient* peek_stream = http2.getStreamPtr();
+  if (peek_stream->available() > 0) {
+    uint8_t magic = peek_stream->peek();
+    Serial.printf("[OTA] First byte of download: 0x%02X\n", magic);
+    if (magic != 0xE9) {
+      Serial.println("[OTA] ERROR: Downloaded file is not a valid ESP32 firmware!");
+      Serial.println("[OTA] Expected magic byte 0xE9, this may be HTML or corrupted");
+      status(cb, "Invalid firmware file");
+      http2.end();
+      return false;
+    }
+  }
   
   // Begin update with explicit app type and size
   // U_FLASH = 0 (app update to OTA partition)
