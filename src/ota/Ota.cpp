@@ -301,19 +301,9 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   delay(200);
   Serial.println("[OTA] WiFi disconnected for flash finalization");
   
-  // CRITICAL: Ensure flash writes are fully committed
-  // Force CPU to sync flash cache by reading back written data
-  const esp_partition_t* update_part = esp_ota_get_next_update_partition(NULL);
-  if (update_part) {
-    uint8_t verify_buf[32];
-    if (esp_partition_read(update_part, 0, verify_buf, sizeof(verify_buf)) == ESP_OK) {
-      Serial.printf("[OTA] Flash sync verification - magic: 0x%02x\n", verify_buf[0]);
-      if (verify_buf[0] != 0xE9) {
-        Serial.println("[OTA] WARNING: Invalid magic byte in written partition!");
-      }
-    }
-  }
-  delay(500);  // Allow flash controller to fully commit writes
+  // Allow flash controller time to settle before validation
+  // Note: Update library buffers writes and flushes during Update.end()
+  delay(500);
   
   status(cb, "Verifying...");
   
