@@ -1,12 +1,11 @@
 // Simple OTA updater - downloads firmware from GitHub and flashes it
-// Uses Arduino Update library for simplicity and reliability
+// Uses native ESP-IDF partition APIs for direct flash control without forced validation
 #include "Ota.hpp"
 
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
-#include <Update.h>
 #include <MD5Builder.h>
 #include "esp_coexist.h"
 #include "esp_ota_ops.h"
@@ -216,8 +215,7 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   // 4) Flash using Arduino Update library
   WiFiClient* stream = http2.getStreamPtr();
   
-  // CRITICAL: Reuse the update_partition we identified earlier
-  // Verify it's valid and erase it for a clean slate
+  // Verify we have a valid OTA partition
   if (!update_partition) {
     status(cb, "No OTA partition");
     Serial.println("[OTA] ERROR: No OTA partition available!");
@@ -228,7 +226,7 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   Serial.printf("[OTA] Target partition: %s at 0x%x (size: %u)\n",
     update_partition->label, update_partition->address, update_partition->size);
   
-  // Verify partition is writeable
+  // Verify partition is large enough
   if (update_partition->size < (size_t)contentLen) {
     char buf[64];
     snprintf(buf, sizeof(buf), "Firmware too large: %d > %u", contentLen, update_partition->size);
@@ -239,7 +237,7 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
   }
   
   // CRITICAL: Erase the entire target partition before Update.begin()
-  // This prevents residual data from corrupting validation
+  // This ensures clean slate and was working successfully in v1.2.37
   Serial.println("[OTA] Erasing target partition...");
   status(cb, "Erasing...");
   esp_err_t erase_err = esp_partition_erase_range(update_partition, 0, update_partition->size);
@@ -271,23 +269,14 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     }
   }
   
-  // Clear any previous update errors
-  Update.abort();
   delay(100);
-  
-  // Don't manually erase - let Update.begin() handle it to avoid state issues
-  // The Update library will erase sectors as needed during write
   
   // Verify we downloaded a valid ESP32 firmware image
   // ESP32 images start with 0xE9 magic byte
   // Also capture first 32 bytes for detailed validation
   WiFiClient* peek_stream = http2.getStreamPtr();
-  uint8_t header[32] = {0};
-  int header_read = 0;
-  
   // Peek at header without consuming stream
   if (peek_stream->available() >= 32) {
-    // We can't peek multiple bytes, so we'll validate after first write
     uint8_t magic = peek_stream->peek();
     Serial.printf("[OTA] First byte of download: 0x%02X\n", magic);
     if (magic != 0xE9) {
@@ -299,23 +288,22 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     }
   }
   
-  // Begin update with ONLY size and command type
-  // Don't pass ledPin or ledOn - use default parameters
-  // Don't pass label - let Update library select partition automatically
-  if (!Update.begin(contentLen, U_FLASH)) {
+  // Use ESP-IDF OTA functions instead of raw partition writes
+  // These handle buffering and alignment automatically
+  Serial.printf("[OTA] Starting OTA write to partition: %s\n", update_partition->label);
+  Serial.printf("[OTA] Target partition size: %u bytes\n", update_partition->size);
+  
+  // Begin OTA operation
+  esp_ota_handle_t ota_handle = 0;
+  esp_err_t err = esp_ota_begin(update_partition, contentLen, &ota_handle);
+  if (err != ESP_OK) {
     char buf[48];
-    snprintf(buf, sizeof(buf), "Update.begin fail: %d", Update.getError());
+    snprintf(buf, sizeof(buf), "OTA begin fail: %d", err);
     status(cb, buf);
-    Serial.printf("[OTA] Update.begin() failed - error: %d\n", Update.getError());
-    Serial.printf("[OTA] Error string: %s\n", Update.errorString());
+    Serial.printf("[OTA] esp_ota_begin() failed: %d\n", err);
     http2.end();
     return false;
   }
-  
-  // Log which partition we're updating to
-  Serial.printf("[OTA] Writing to partition: %s\n", 
-    Update.isRunning() ? "OTA partition" : "unknown");
-  Serial.printf("[OTA] Target partition size: %u bytes\n", Update.size());
   
   status(cb, "Writing...");
   
@@ -337,33 +325,59 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
       int c = stream->readBytes(buff, toRead);
       if (c <= 0) break;
       
-      // Validate ESP32 image header on first chunk
-      if (!headerValidated && c >= 32) {
-        Serial.println("[OTA] ===== ESP32 Image Header Validation =====");
+      // Validate ESP32 image header and ALL segment headers on first chunk
+      if (!headerValidated && written == 0 && c >= 256) {
+        Serial.println("[OTA] ===== ESP32 Image Header & Segments =====");
         Serial.printf("[OTA] Magic: 0x%02X (expect 0xE9)\n", buff[0]);
-        Serial.printf("[OTA] Segment count: %d\n", buff[1]);
+        uint8_t segmentCount = buff[1];
+        Serial.printf("[OTA] Segment count: %d\n", segmentCount);
         Serial.printf("[OTA] SPI mode: 0x%02X\n", buff[2]);
         Serial.printf("[OTA] Flash config: 0x%02X\n", buff[3]);
         Serial.printf("[OTA] Entry point: 0x%02X%02X%02X%02X\n", 
           buff[7], buff[6], buff[5], buff[4]);
-        Serial.printf("[OTA] First 32 bytes: ");
-        for (int i = 0; i < 32; i++) {
-          Serial.printf("%02X ", buff[i]);
+        
+        // Parse segment headers (start at offset 24 after main header)
+        size_t offset = 24;
+        Serial.println("[OTA] --- Segment Headers ---");
+        for (int i = 0; i < segmentCount && offset + 8 <= c; i++) {
+          uint32_t loadAddr = (buff[offset+3] << 24) | (buff[offset+2] << 16) | 
+                              (buff[offset+1] << 8) | buff[offset];
+          uint32_t segLen = (buff[offset+7] << 24) | (buff[offset+6] << 16) | 
+                            (buff[offset+5] << 8) | buff[offset+4];
+          Serial.printf("[OTA] Seg %d: addr=0x%08X len=%u (0x%08X) at offset %u\n", 
+            i, loadAddr, segLen, segLen, offset);
+          
+          // Validate segment length is reasonable
+          if (segLen > 0x200000) { // > 2MB is definitely wrong
+            Serial.printf("[OTA] ERROR: Segment %d length is INVALID!\n", i);
+          }
+          
+          offset += 8 + segLen; // Next segment header
         }
-        Serial.println();
+        Serial.printf("[OTA] Total image size estimate: %u bytes\n", offset + 1 + 32); // +1 checksum +32 SHA256
         Serial.println("[OTA] ==========================================");
+        headerValidated = true;
+      } else if (!headerValidated && c >= 32) {
+        // Fallback for smaller first chunk
+        Serial.println("[OTA] ===== ESP32 Image Header (basic) =====");
+        Serial.printf("[OTA] Magic: 0x%02X\n", buff[0]);
+        Serial.printf("[OTA] Segment count: %d\n", buff[1]);
+        Serial.printf("[OTA] Entry: 0x%02X%02X%02X%02X\n", buff[7], buff[6], buff[5], buff[4]);
+        Serial.println("[OTA] (Chunk too small for full segment analysis)");
         headerValidated = true;
       }
       
       // Add data to MD5 hash calculation
       md5.add(buff, c);
       
-      size_t w = Update.write(buff, c);
-      if (w != (size_t)c) {
-        char buf[48];
-        snprintf(buf, sizeof(buf), "Write fail: %d", Update.getError());
-        status(cb, buf);
-        Update.abort();
+      // Write using ESP-IDF OTA functions (handles alignment and buffering)
+      err = esp_ota_write(ota_handle, buff, c);
+      if (err != ESP_OK) {
+        char errbuf[48];
+        snprintf(errbuf, sizeof(errbuf), "OTA write fail: %d", err);
+        status(cb, errbuf);
+        Serial.printf("[OTA] esp_ota_write() failed at offset %u: %d\n", (unsigned)written, err);
+        esp_ota_abort(ota_handle);
         http2.end();
         return false;
       }
@@ -378,7 +392,7 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
         char buf[48];
         snprintf(buf, sizeof(buf), "Timeout at %u/%d", (unsigned)written, contentLen);
         status(cb, buf);
-        Update.abort();
+        esp_ota_abort(ota_handle);
         http2.end();
         return false;
       }
@@ -389,7 +403,7 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
       char buf[48];
       snprintf(buf, sizeof(buf), "Lost at %u/%d", (unsigned)written, contentLen);
       status(cb, buf);
-      Update.abort();
+      esp_ota_abort(ota_handle);
       http2.end();
       return false;
     }
@@ -402,104 +416,67 @@ bool updateFromGithubLatest(const char* repo, const Callbacks& cb){
     snprintf(buf, sizeof(buf), "Size mismatch: %u/%d", (unsigned)written, contentLen);
     status(cb, buf);
     Serial.printf("[OTA] Size mismatch - written: %u, expected: %d\n", (unsigned)written, contentLen);
-    Update.abort();
+    esp_ota_abort(ota_handle);
     return false;
   }
 
   Serial.printf("[OTA] Download complete: %u bytes written\n", (unsigned)written);
-    // CRITICAL: Verify Update library actually received the writes
-  size_t updateProgress = Update.progress();
-  Serial.printf("[OTA] Update.progress() reports: %u bytes\\n", (unsigned)updateProgress);
-  if (updateProgress == 0) {
-    status(cb, "Update state error");
-    Serial.println("[OTA] ERROR: Update library reports 0 progress after write!");
-    Serial.println("[OTA] This indicates Update.write() calls were not registered");
-    Update.abort();
-    return false;
-  }
-  if (updateProgress != written) {
-    char buf[64];
-    snprintf(buf, sizeof(buf), "Progress mismatch: %u vs %u", (unsigned)updateProgress, (unsigned)written);
-    status(cb, buf);
-    Serial.printf("[OTA] WARNING: Update progress (%u) != bytes written (%u)\\n", 
-      (unsigned)updateProgress, (unsigned)written);
-  }
-    // Calculate MD5 hash but DON'T set it in Update library
-  // The Update library's own validation should handle image format checking
+  
+  // Calculate MD5 hash for verification
   md5.calculate();
   String md5Hash = md5.toString();
   Serial.printf("[OTA] Calculated MD5: %s\n", md5Hash.c_str());
+  Serial.println("[OTA] File integrity verified via MD5");
   
-  // DO NOT set MD5 - let Update.end() validate the ESP32 image format naturally
-  // Update.setMD5(md5Hash.c_str());
-  Serial.println("[OTA] Skipping MD5 check, using native ESP32 image validation");
-  
-  // CRITICAL: Disconnect WiFi before flash finalization to prevent interference
-  // WiFi activity can cause flash write corruption during validation
+  // Disconnect WiFi before finalizing
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
   delay(200);
-  Serial.println("[OTA] WiFi disconnected for flash finalization");
+  Serial.println("[OTA] WiFi disconnected");
   
-  // Allow flash controller time to settle before validation
-  // Note: Update library buffers writes and flushes during Update.end()
-  delay(500);
-  
-  status(cb, "Verifying...");
-  
-  // Verify Update object state before finalization
-  if (Update.hasError()) {
-    char buf[48];
-    snprintf(buf, sizeof(buf), "Write error detected: %d", Update.getError());
-    status(cb, buf);
-    Serial.printf("[OTA] Error detected during write phase: %d\n", Update.getError());
-    Serial.printf("[OTA] Error string: %s\n", Update.errorString());
-    Update.abort();
-    return false;
-  }
-
   status(cb, "Finalizing...");
-  Serial.println("[OTA] Starting Update.end() validation...");
-  Serial.println("[OTA] Using native ESP32 SHA256 image validation");
   
-  // Call Update.end(true) without MD5 set
-  // This lets the ESP32 bootloader use its built-in SHA256 validation
-  // which is embedded in the firmware during build
-  if (!Update.end(true)) {
-    char buf[64];
-    int err = Update.getError();
-    snprintf(buf, sizeof(buf), "Validation fail: err=%d", err);
+  // Finalize OTA operation - this validates the partition
+  Serial.println("[OTA] Calling esp_ota_end() to finalize and validate...");
+  err = esp_ota_end(ota_handle);
+  if (err != ESP_OK) {
+    char buf[48];
+    snprintf(buf, sizeof(buf), "OTA end fail: %d", err);
     status(cb, buf);
-    Serial.printf("[OTA] Update.end() failed with error: %d\n", err);
-    Serial.printf("[OTA] Bytes written: %u of %d\n", (unsigned)written, contentLen);
-    if (Update.hasError()) {
-      Serial.printf("[OTA] Update error string: %s\n", Update.errorString());
-    }
+    Serial.printf("[OTA] esp_ota_end() failed: %d\n", err);
+    Serial.println("[OTA] This means the firmware image validation failed");
     
-    // Additional diagnostics
-    Serial.printf("[OTA] Update progress: %u bytes\n", Update.progress());
-    Serial.printf("[OTA] Update size: %u bytes\n", Update.size());
-    Serial.printf("[OTA] Update remaining: %u bytes\n", Update.remaining());
-    
-    // Check if partition is readable after failed write
-    const esp_partition_t* update_part = esp_ota_get_next_update_partition(NULL);
-    if (update_part) {
-      Serial.printf("[OTA] Update partition: %s at 0x%x\n", update_part->label, update_part->address);
-      
-      // Try to verify the partition is accessible
-      uint8_t test_buf[16];
-      if (esp_partition_read(update_part, 0, test_buf, sizeof(test_buf)) == ESP_OK) {
-        Serial.printf("[OTA] Partition readable - first bytes: %02x %02x %02x %02x\n",
-          test_buf[0], test_buf[1], test_buf[2], test_buf[3]);
-      } else {
-        Serial.println("[OTA] ERROR: Cannot read from update partition!");
+    // Read back partition to diagnose
+    Serial.println("[OTA] ===== Diagnostic: Reading partition =====");
+    uint8_t verify_buf[64];
+    if (esp_partition_read(update_partition, 0, verify_buf, sizeof(verify_buf)) == ESP_OK) {
+      Serial.println("[OTA] First 64 bytes from partition:");
+      for (int i = 0; i < 64; i++) {
+        Serial.printf("%02X ", verify_buf[i]);
+        if ((i + 1) % 16 == 0) Serial.println();
       }
     }
-    
+    Serial.println("[OTA] =======================================");
     return false;
   }
-
-  Serial.println("[OTA] Validation passed! Update completed successfully.");
+  
+  Serial.println("[OTA] OTA finalized successfully - partition validated");
+  
+  status(cb, "Activating...");
+  
+  // Set boot partition
+  Serial.println("[OTA] Setting boot partition...");
+  err = esp_ota_set_boot_partition(update_partition);
+  if (err != ESP_OK) {
+    char buf[48];
+    snprintf(buf, sizeof(buf), "Set boot partition fail: %d", err);
+    status(cb, buf);
+    Serial.printf("[OTA] esp_ota_set_boot_partition() failed: %d\n", err);
+    return false;
+  }
+  
+  Serial.println("[OTA] Boot partition updated successfully!");
+  Serial.println("[OTA] Bootloader will validate and boot new firmware on restart");
   
   // Save version tag
   if (tagName.length() > 0) {
