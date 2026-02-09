@@ -78,3 +78,22 @@ inline const char* relayName(RelayIndex r){
     default:       return "R?";
   }
 }
+
+// ----- Relay Health Monitoring -----
+// Count how many relays are currently expected to be ON
+inline int countActiveRelays(){
+  int count = 0;
+  for (int i = 0; i < (int)R_COUNT; ++i){
+    if (g_relay_on[i]) count++;
+  }
+  return count;
+}
+
+// Get bitmask of currently active relays (bit 0 = R_LEFT, bit 1 = R_RIGHT, etc.)
+inline uint8_t getActiveRelayMask(){
+  uint8_t mask = 0;
+  for (int i = 0; i < (int)R_COUNT; ++i){
+    if (g_relay_on[i]) mask |= (1 << i);
+  }
+  return mask;
+}

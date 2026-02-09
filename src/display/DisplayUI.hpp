@@ -44,6 +44,7 @@ enum FaultBits : uint32_t {
   FLT_INA_SRC_MISSING   = 1u << 1,
   FLT_WIFI_DISCONNECTED = 1u << 2,
   FLT_RF_MISSING        = 1u << 3,
+  FLT_RELAY_COIL        = 1u << 4,
 };
 
 class DisplayUI {

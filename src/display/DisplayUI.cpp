@@ -262,6 +262,7 @@ void DisplayUI::rebuildFaultText(){
   if (_faultMask & FLT_INA_LOAD_MISSING)  add("Load INA missing");
   if (_faultMask & FLT_INA_SRC_MISSING)   add("Src INA missing");
   if (_faultMask & FLT_RF_MISSING)        add("RF missing");
+  if (_faultMask & FLT_RELAY_COIL)        add("Relay fault");
   if (_faultText.length()==0) _faultText = "Fault";
 }
 

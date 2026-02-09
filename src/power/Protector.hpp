@@ -14,10 +14,12 @@ public:
   bool isLvpLatched() const { return _lvpLatched; }
   bool isOcpLatched() const { return _ocpLatched; }
   bool isOutvLatched() const { return _outvLatched; }
-  void clearLatches();      // clears both latches
+  bool isRelayCoilLatched() const { return _relayCoilLatched; }
+  void clearLatches();      // clears all latches
   void clearLvpLatch();     // clear only LVP latch
   void clearOcpLatch();     // clear only OCP latch
   void clearOutvLatch();    // clear only OUTV latch
+  void clearRelayCoilLatch(); // clear only relay coil latch
   // Prevent automatic OCP clear while interlock is active
   void setOcpHold(bool on);
   // Relay index that was ON when OCP tripped; -1 if unknown
@@ -42,6 +44,10 @@ public:
   // Bypass control for Output Voltage protection
   void setOutvBypass(bool on);
   bool outvBypass() const { return _outvBypass; }
+  
+  // Relay coil fault detection
+  void tripRelayCoil(int relayIndex);
+  int8_t relayCoilFaultIndex() const { return _relayCoilFaultIndex; }
 
 private:
   void tripLvp();
@@ -83,9 +89,11 @@ private:
   bool  _lvpLatched = false;
   bool  _ocpLatched = false;
   bool  _outvLatched = false;
+  bool  _relayCoilLatched = false;
   bool  _outvBypass = false;  // when true, ALL OUTV trips (soft and hard bounds) are ignored
   bool  _ocpHold    = false;  // when true, do not auto-clear OCP
   int8_t _ocpTripRelay = -1;  // captured at trip time
+  int8_t _relayCoilFaultIndex = -1; // which relay had coil fault
   bool  _ocpClearAllowed = false; // gate explicit clears
   uint32_t _ocpSuppressUntilMs = 0; // transient ignore window for OCP
 

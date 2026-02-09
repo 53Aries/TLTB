@@ -17,6 +17,24 @@ static constexpr float   RSHUNT_OHMS    = 0.001875f;
 static constexpr float   CURRENT_LSB_A  = 0.001f;   // 1 mA/bit
 // Calibration register formula (per datasheet): CAL = 0.00512 / (Current_LSB * R_shunt)
 static constexpr uint16_t CALIB         = (uint16_t)((0.00512f / (CURRENT_LSB_A * RSHUNT_OHMS)) + 0.5f); // ≈ 2731 (0x0AAB)
+
+// Calibration for SOURCE INA226 relay coil current measurement
+// Default: 0.1Ω shunt, 1mA resolution (adjust via setCalibration if needed)
+// 
+// USAGE: Adjust calibration based on your shunt resistor:
+//   Example 1: 0.1Ω shunt, 1mA resolution (default)
+//     INA226_SRC::setCalibration(0.1f, 0.001f);
+//   Example 2: 0.05Ω shunt, 0.5mA resolution (higher current range)
+//     INA226_SRC::setCalibration(0.05f, 0.0005f);
+//   Example 3: 1.0Ω shunt, 1mA resolution (very low current, better resolution)
+//     INA226_SRC::setCalibration(1.0f, 0.001f);
+// 
+// Typical automotive relay coil: 50-150mA @ 12V
+// With 7 relays max, expect up to ~700mA total coil current
+//
+static float   RSHUNT_SRC_OHMS   = 0.1f;          // 100 mΩ shunt
+static float   CURRENT_SRC_LSB_A = 0.001f;        // 1 mA/bit
+static uint16_t CALIB_SRC        = (uint16_t)((0.00512f / (CURRENT_SRC_LSB_A * RSHUNT_SRC_OHMS)) + 0.5f);
 bool  INA226::PRESENT      = false;
 bool  INA226_SRC::PRESENT  = false;
 float INA226::OCP_LIMIT_A  = 22.0f;
@@ -100,7 +118,7 @@ void INA226::setInvert(bool on){
 
 bool INA226::getInvert(){ return s_invertLoad; }
 
-// ===== SOURCE INA226 (battery voltage for LVP) =====
+// ===== SOURCE INA226 (battery voltage + relay coil current monitoring) =====
 void INA226_SRC::begin(){
   ensureWire();
   PRESENT = (endTx(0x41) == 0);
@@ -109,11 +127,49 @@ void INA226_SRC::begin(){
   wr16(ADDR_SRC, 0x00, 0x8000); delay(2);
   // AVG=4, VBUS=332µs, VSHUNT=332µs, continuous (fast sampling: ~2.7ms per reading)
   wr16(ADDR_SRC, 0x00, (0b001<<9)|(0b010<<6)|(0b010<<3)|0b111);
-  wr16(ADDR_SRC, 0x05, CALIB);
+  wr16(ADDR_SRC, 0x05, CALIB_SRC);
+}
+
+void INA226_SRC::setCalibration(float rShuntOhms, float currentLsbA){
+  if (!PRESENT) return;
+  RSHUNT_SRC_OHMS = rShuntOhms;
+  CURRENT_SRC_LSB_A = currentLsbA;
+  CALIB_SRC = (uint16_t)((0.00512f / (currentLsbA * rShuntOhms)) + 0.5f);
+  wr16(ADDR_SRC, 0x05, CALIB_SRC);
 }
 
 float INA226_SRC::readBusV(){
   if (!PRESENT) return 0.0f;
   uint16_t raw = rd16_or0(ADDR_SRC, 0x02);
   return raw * 1.25e-3f;
+}
+
+float INA226_SRC::readCurrentA(){
+  if (!PRESENT) return 0.0f;
+  int16_t raw = (int16_t)rd16_or0(ADDR_SRC, 0x04);
+  return raw * CURRENT_SRC_LSB_A;
+}
+
+float INA226_SRC::getRelayCoilCurrent(){
+  // Alias for readCurrentA() with clear semantic purpose
+  return readCurrentA();
+}
+
+bool INA226_SRC::verifyRelayCoils(int expectedCount, float nominalCoilMa){
+  if (!PRESENT) return true; // Can't verify, assume OK
+  
+  float measuredMa = readCurrentA() * 1000.0f;  // Convert A to mA
+  float expectedMa = expectedCount * nominalCoilMa;
+  
+  // Allow ±40% tolerance for relay coil variation and measurement uncertainty
+  float tolerance = 0.4f;
+  float minExpected = expectedMa * (1.0f - tolerance);
+  float maxExpected = expectedMa * (1.0f + tolerance);
+  
+  // Special case: if expecting zero relays, accept up to 5mA (noise floor)
+  if (expectedCount == 0) {
+    return (measuredMa < 5.0f);
+  }
+  
+  return (measuredMa >= minExpected && measuredMa <= maxExpected);
 }

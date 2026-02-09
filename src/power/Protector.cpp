@@ -31,6 +31,8 @@ void Protector::begin(Preferences* prefs, float lvpDefault, float ocpDefault) {
   _belowStartMs = _overStartMs = 0;
   _outvLatched = false;
   _outvBelowStartMs = 0;
+  _relayCoilLatched = false;
+  _relayCoilFaultIndex = -1;
   _cutsent = false;
   _lvpBypass = false;  // not persisted (intentional: safe default on power-up)
   _outvBypass = false;
@@ -80,8 +82,17 @@ void Protector::tripOcp() {
   _cutsent = true;
 }
 
+void Protector::tripRelayCoil(int relayIndex) {
+  if (_relayCoilLatched) return;
+  _relayCoilLatched = true;
+  _relayCoilFaultIndex = (int8_t)relayIndex;
+  // immediate hard cut
+  for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+  _cutsent = true;
+}
+
 void Protector::clearLatches() {
-  _lvpLatched = _ocpLatched = _outvLatched = false;
+  _lvpLatched = _ocpLatched = _outvLatched = _relayCoilLatched = false;
   _belowStartMs = _overStartMs = 0;
   _outvBelowStartMs = 0;
   _cutsent = false;
@@ -104,6 +115,11 @@ void Protector::clearOcpLatch(){
 void Protector::clearOutvLatch(){
   _outvLatched = false;
   _outvBelowStartMs = 0;
+}
+
+void Protector::clearRelayCoilLatch(){
+  _relayCoilLatched = false;
+  _relayCoilFaultIndex = -1;
 }
 
 void Protector::setOutvBypass(bool on) {
@@ -238,8 +254,8 @@ void Protector::tick(float srcV, float loadA, float outV, uint32_t nowMs) {
 
   // -------- Continuous enforcement while latched --------
   // Previously this only cut once (gated by _cutsent). That allowed relays to be re-enabled later.
-  // Now, while *either* latch is active, we force all relays OFF on every tick.
-  if (_lvpLatched || _ocpLatched || _outvLatched) {
+  // Now, while *any* latch is active, we force all relays OFF on every tick.
+  if (_lvpLatched || _ocpLatched || _outvLatched || _relayCoilLatched) {
     for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
     _cutsent = true;       // keep flag for backward compatibility
   } else {

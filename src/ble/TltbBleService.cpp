@@ -27,6 +27,7 @@ enum StatusFlag : uint16_t {
   kFlagOutvBypass        = 1 << 4,
   kFlagCooldownActive    = 1 << 5,
   kFlagStartupGuard      = 1 << 6,
+  kFlagRelayCoilLatched  = 1 << 7,
 };
 
 const char* relayIdForIndex(RelayIndex idx) {
@@ -205,6 +206,9 @@ void TltbBleService::publishStatus(const BleStatusContext& ctx) {
   }
   if (ctx.startupGuard) {
     statusFlags |= kFlagStartupGuard;
+  }
+  if (ctx.telemetry.relayCoilLatched) {
+    statusFlags |= kFlagRelayCoilLatched;
   }
   root["statusFlags"] = statusFlags;
 

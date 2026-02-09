@@ -148,7 +148,7 @@ static void enforceRotaryMode(RotaryMode m) {
   }
 
   // Protection fault override: if any fault is latched, keep all relays OFF regardless of rotary position
-  if (protector.isLvpLatched() || protector.isOcpLatched() || protector.isOutvLatched()) {
+  if (protector.isLvpLatched() || protector.isOcpLatched() || protector.isOutvLatched() || protector.isRelayCoilLatched()) {
     for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
     return;
   }
@@ -231,6 +231,7 @@ static uint32_t computeFaultMask(){
   if (!INA226_SRC::PRESENT) m |= FLT_INA_SRC_MISSING;
 
   if (!RF::isPresent())     m |= FLT_RF_MISSING;
+  if (protector.isRelayCoilLatched()) m |= FLT_RELAY_COIL;
   return m;
 }
 
@@ -244,7 +245,7 @@ static bool bleCanDriveRelays() {
   #else
   if (g_stableRotaryMode != MODE_RF_ENABLE) return false;
   #endif
-  if (protector.isLvpLatched() || protector.isOcpLatched() || protector.isOutvLatched()) return false;
+  if (protector.isLvpLatched() || protector.isOcpLatched() || protector.isOutvLatched() || protector.isRelayCoilLatched()) return false;
   return true;
 }
 
@@ -571,6 +572,33 @@ void loop() {
   tele.srcV  = INA226_SRC::PRESENT ? INA226_SRC::readBusV()    : NAN;
   tele.loadA = INA226::PRESENT     ? INA226::readCurrentA()    : NAN;
   tele.outV  = INA226::PRESENT     ? INA226::readBusV()        : NAN; // LOAD INA226 bus voltage as buck output
+  
+  // Read relay coil current (SOURCE INA226 monitors coil current)
+  tele.relayCoilA = INA226_SRC::PRESENT ? INA226_SRC::readCurrentA() : NAN;
+  
+  // Relay health check: verify coil current matches expected state (run every 500ms)
+  static uint32_t lastRelayCheckMs = 0;
+  uint32_t now = millis();
+  if ((now - lastRelayCheckMs) >= 500) {
+    lastRelayCheckMs = now;
+    int expectedRelays = countActiveRelays();
+    bool relayHealthOk = INA226_SRC::verifyRelayCoils(expectedRelays);
+    
+    // Trip relay coil fault if mismatch detected (not already latched)
+    if (!relayHealthOk && !protector.isRelayCoilLatched()) {
+      // Determine which relay (if any) is suspected to be faulty
+      int faultyRelay = -1;
+      // If only one relay should be on, that's the suspect
+      if (expectedRelays == 1) {
+        for (int i = 0; i < (int)R_COUNT; ++i) {
+          if (relayIsOn(i)) { faultyRelay = i; break; }
+        }
+      }
+      Serial.printf("[RELAY] Coil fault detected: expected %d relays (%.1fmA), measured %.1fmA\n",
+                    expectedRelays, expectedRelays * 80.0f, tele.relayCoilA * 1000.0f);
+      protector.tripRelayCoil(faultyRelay);
+    }
+  }
 
   // Protection logic
   // Ensure OCP hold engages before tick so auto-clear cannot occur while rotating toward OFF
@@ -584,9 +612,9 @@ void loop() {
   tele.lvpLatched   = protector.isLvpLatched();
   tele.ocpLatched   = protector.isOcpLatched();
   tele.outvLatched  = protector.isOutvLatched();
+  tele.relayCoilLatched = protector.isRelayCoilLatched();
 
   // Cooldown timer logic: limit sustained high current usage
-  uint32_t now = millis();
   float current = !isnan(tele.loadA) ? fabsf(tele.loadA) : 0.0f;
   
   if (g_cooldownStartMs > 0) {
@@ -636,6 +664,7 @@ void loop() {
     if (tele.ocpLatched) beepFault = true; // OCP always beeps (no bypass)
     if (tele.lvpLatched && !protector.lvpBypass()) beepFault = true;
     if (tele.outvLatched && !protector.outvBypass()) beepFault = true;
+    if (tele.relayCoilLatched) beepFault = true; // Relay coil fault always beeps
     if (ui && ui->menuActive()) {
       beepFault = false; // silence buzzer whenever settings menu is on screen
     }
@@ -785,6 +814,75 @@ void loop() {
       if (outvHealthySince == 0) outvHealthySince = now;
       if (now - outvHealthySince >= 1000) {
         outvAcked = false;
+      }
+    }
+  }
+
+  // Relay Coil Fault modal (single-shot per continuous fault; re-armed after healthy period)
+  static bool     relayCoilAcked = false;
+  static uint32_t relayCoilHealthySince = 0;
+  {
+    bool relayCoilLatched = protector.isRelayCoilLatched();
+    if (relayCoilLatched) {
+      g_startupGuard = true; // Prevent relay operation until OFF cycle
+      relayCoilHealthySince = 0;
+      if (!relayCoilAcked) {
+        // Show a blocking modal that requires OFF position to clear
+        if (tft) {
+          tft->fillScreen(ST77XX_RED);
+          tft->setTextColor(ST77XX_WHITE, ST77XX_RED);
+          tft->setTextSize(2);
+          tft->setCursor(6, 6);  tft->print("Relay Fault");
+          tft->setTextSize(1);
+          
+          // Show which relay is suspected if known
+          int8_t faultyIdx = protector.relayCoilFaultIndex();
+          if (faultyIdx >= 0 && faultyIdx < (int)R_COUNT) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "Output %s", relayName((RelayIndex)faultyIdx));
+            tft->setCursor(6, 34); tft->print(buf);
+            tft->setCursor(6, 46); tft->print("internal fault.");
+          } else {
+            tft->setCursor(6, 34); tft->print("Output internal fault.");
+          }
+          
+          tft->setCursor(6, 58); tft->print("Contact customer svc.");
+          
+          // Footer instruction
+          tft->fillRect(0, 108, 160, 20, ST77XX_BLACK);
+          tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+          tft->setCursor(6, 112); tft->print("Rotate to OFF to restart");
+        }
+        // Block until OFF is detected (debounced); keep relays off
+        {
+          uint32_t offStableStart = 0;
+          while (true) {
+            RotaryMode m = readRotary();
+            for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
+            if (m == MODE_ALL_OFF) {
+              if (offStableStart == 0) offStableStart = millis();
+              // Require OFF to be held stable for at least 300ms
+              if (millis() - offStableStart >= 300) break;
+            } else {
+              offStableStart = 0; // reset stability if moved away
+            }
+            delay(10);
+          }
+        }
+        // OFF detected: clear relay coil latch; allow resume
+        protector.clearRelayCoilLatch();
+        g_startupGuard = false;
+        tele.relayCoilLatched = false;
+        relayCoilAcked = true;  // suppress further pop-ups until fault truly resolves
+        // Ensure the Home screen fully repaints after leaving blocking modal
+        ui->requestFullHomeRepaint();
+        ui->showStatus(tele);
+      }
+    } else {
+      uint32_t now = millis();
+      if (relayCoilHealthySince == 0) relayCoilHealthySince = now;
+      if (now - relayCoilHealthySince >= 1000) {
+        relayCoilAcked = false;
       }
     }
   }
