@@ -88,6 +88,48 @@ void INA226::begin(){
   wr16(ADDR_LOAD, 0x05, CALIB);
   // Load invert preference
   s_invertLoad = prefs.getBool(KEY_CURR_INV, false);
+  
+  // ALERT pin defaults to transparent (not configured) until configureAlert() called
+}
+
+void INA226::configureAlert(float thresholdA){
+  if (!PRESENT) return;
+  
+  // Convert threshold current to register value
+  // Current Register = Current / Current_LSB
+  int16_t alertLimit = (int16_t)(thresholdA / CURRENT_LSB_A);
+  
+  // Write Alert Limit register (0x07)
+  wr16(ADDR_LOAD, 0x07, (uint16_t)alertLimit);
+  
+  // Configure Mask/Enable register (0x06)
+  // Bit 15: Alert Function Mode (1 = Alert on limit)
+  // Bit 14: Conversion Ready (0 = don't use)
+  // Bit 13-11: unused
+  // Bit 10: Alert Polarity (0 = active low)
+  // Bit 9-5: unused  
+  // Bit 4: Alert Latch Enable (1 = latched)
+  // Bit 3: Power Over-Limit (0 = not used)
+  // Bit 2: Bus Under-Voltage (0 = not used)
+  // Bit 1: Bus Over-Voltage (0 = not used)
+  // Bit 0: Shunt Over-Voltage (1 = enable current overlimit)
+  // Result: 0x8011 = Alert mode, latched, shunt over-voltage
+  wr16(ADDR_LOAD, 0x06, 0x8011);
+  
+  Serial.printf("[INA226] ALERT configured: threshold=%.1fA, limit_reg=%d\n", thresholdA, alertLimit);
+}
+
+bool INA226::isAlertActive(){
+  if (!PRESENT) return false;
+  // Read ALERT pin state (active low)
+  pinMode(PIN_INA_LOAD_ALERT, INPUT_PULLUP);
+  return (digitalRead(PIN_INA_LOAD_ALERT) == LOW);
+}
+
+void INA226::clearAlert(){
+  if (!PRESENT) return;
+  // Reading the Mask/Enable register clears the latched alert
+  (void)rd16_or0(ADDR_LOAD, 0x06);
 }
 
 void INA226::setOcpLimit(float amps){ OCP_LIMIT_A = amps; }

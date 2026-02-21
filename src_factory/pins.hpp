@@ -11,8 +11,9 @@
 #define PIN_TFT_CS      41
 #define PIN_TFT_DC      40
 #define PIN_TFT_RST     39
-#define PIN_TFT_BL      42
-#define PIN_TFT_BLK     PIN_TFT_BL   // alias for code paths that use BLK GPIO 42
+// TFT backlight not used - display runs without it
+// GPIO 42 repurposed for INA226 ALERT in main firmware
+// #define PIN_TFT_BL      42
 
 // ======================= Rotary Encoder =======================
 #define PIN_ENC_A       2

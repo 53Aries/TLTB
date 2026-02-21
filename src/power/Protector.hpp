@@ -77,8 +77,7 @@ private:
   const uint32_t _outvTripMs = 200;  // Output V below cutoff for 200ms
   // Instant trip threshold: current above this multiple of OCP trips immediately
   static constexpr float OCP_INSTANT_MULTIPLIER = 2.0f;  // 2x OCP = instant trip
-  // Extreme current detection threshold for buck shutdown logging (pre-emptive)
-  static constexpr float EXTREME_CURRENT_A = 35.0f;  // Log to NVS when exceeded
+  // Extreme current detection now handled by INA226 ALERT ISR (main.cpp)
 
   // Auto-clear LVP when voltage recovers above threshold with hysteresis
   uint32_t _aboveClearStartMs = 0;         // begin time of healthy-above-LVP window

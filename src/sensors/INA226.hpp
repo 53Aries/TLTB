@@ -16,6 +16,17 @@ namespace INA226 {
   // Optional polarity inversion for load current
   void   setInvert(bool on);
   bool   getInvert();
+  
+  // ALERT pin configuration for extreme overcurrent (short circuit detection)
+  // Configures ALERT pin to trigger when current exceeds threshold (default 30A)
+  // Must be called after begin() and before attaching ISR
+  void   configureAlert(float thresholdA = 30.0f);
+  
+  // Check if ALERT is currently active (pin is active-low)
+  bool   isAlertActive();
+  
+  // Clear the alert condition by reading the Mask/Enable register
+  void   clearAlert();
 }
 
 namespace INA226_SRC {

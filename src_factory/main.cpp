@@ -277,15 +277,10 @@ void setup() {
   }
   
   // Initialize display hardware - EXACT sequence from main.cpp
-  Serial.println("[Factory] Configuring backlight pin...");
+  Serial.println("[Factory] Configuring display pins...");
   Serial.flush();
-  // CRITICAL: Configure pin as OUTPUT first, then clear any PWM
-  pinMode(PIN_TFT_BL, OUTPUT);
-  digitalWrite(PIN_TFT_BL, LOW);
-  ledcDetachPin(PIN_TFT_BL);  // Clear any PWM mode from countdown screen
-  Serial.println("[Factory] Backlight OFF");
-  Serial.flush();
-  delay(50);  // Ensure backlight is fully off before proceeding
+  // TFT backlight not used (GPIO 42 repurposed for INA ALERT in main firmware)
+  // Display runs without backlight control
   
   // Configure all TFT pins as outputs before init
   pinMode(PIN_TFT_CS, OUTPUT);
@@ -335,23 +330,15 @@ void setup() {
   pinMode(PIN_ENC_OK, INPUT_PULLUP);
   pinMode(PIN_ENC_BACK, INPUT_PULLUP);
   
-  // Draw content FIRST before enabling backlight
+  // Draw recovery UI
   Serial.println("[Factory] Drawing recovery UI...");
   Serial.flush();
   showText("RECOVERY MODE", "Factory Partition", "Press OK to update");
-  Serial.println("[Factory] UI drawn, waiting for SPI flush...");
+  Serial.println("[Factory] UI drawn, display ready");
   Serial.flush();
   
-  // CRITICAL: Ensure ALL SPI drawing operations complete before backlight
-  delay(250);  // Longer delay to guarantee SPI buffer is flushed
-  
-  // Enable backlight - use simple digitalWrite (matches countdown screen behavior)
-  // PWM setup might have timing issues after reboot
-  Serial.println("[Factory] Turning ON backlight...");
-  Serial.flush();
-  digitalWrite(PIN_TFT_BL, HIGH);
-  Serial.println("[Factory] Display should now be visible!");
-  Serial.flush();
+  // TFT backlight not used - display runs without it
+  delay(100);
   
   delay(2000);
   

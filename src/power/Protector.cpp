@@ -141,29 +141,6 @@ void Protector::tick(float srcV, float loadA, float outV, uint32_t nowMs) {
   const bool haveI = !isnan(loadA);
   const bool haveOutV = !isnan(outV);
 
-  // -------- Extreme current detection (buck shutdown pre-logging) --------
-  // If current exceeds extreme threshold, immediately log to NVS once
-  // This helps detect buck OCP shutdowns that cause sudden power loss
-  static bool extremeLogged = false;
-  if (haveI && loadA >= EXTREME_CURRENT_A) {
-    if (!extremeLogged && _prefs) {
-      // Write once and commit immediately for fastest persistence
-      _prefs->putFloat(KEY_EXTREME_I, loadA);
-      extremeLogged = true; // Only write once per boot to avoid repeated NVS wear
-    }
-  } else if (haveI && loadA < (_ocp - 5.0f)) {
-    // Current is well below OCP limit - clear any stale extreme current flag
-    // Do this periodically but not too often (every ~few seconds is fine)
-    static uint32_t lastClearMs = 0;
-    if ((nowMs - lastClearMs) > 5000) {
-      if (_prefs && _prefs->isKey(KEY_EXTREME_I)) {
-        _prefs->remove(KEY_EXTREME_I);
-      }
-      lastClearMs = nowMs;
-      extremeLogged = false; // Reset flag when cleared so it can log again if needed
-    }
-  }
-
   // -------- LVP (debounced), ignored if bypass enabled --------
   if (!_lvpBypass && haveV && srcV < _lvp) {
     if (_belowStartMs == 0) _belowStartMs = nowMs;

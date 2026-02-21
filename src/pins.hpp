@@ -11,8 +11,8 @@
 #define PIN_TFT_CS      41
 #define PIN_TFT_DC      40
 #define PIN_TFT_RST     39
-#define PIN_TFT_BL      42
-#define PIN_TFT_BLK     PIN_TFT_BL   // alias for code paths that use BLK GPIO 42
+// TFT backlight not used - display runs without it
+// #define PIN_TFT_BL      42  // repurposed for INA226 ALERT
 
 // ======================= Rotary Encoder =======================
 #define PIN_ENC_A       2
@@ -37,6 +37,11 @@
 #define PIN_I2C_SDA     47
 #define PIN_I2C_SCL     48
 // #Source INA bridge A0
+
+// ======================= INA226 ALERT Pin =======================
+// LOAD INA226 ALERT output for extreme overcurrent detection (>30A)
+// Triggers before buck converter shutdown to log short circuit event
+#define PIN_INA_LOAD_ALERT  42
 
 // ======================= Relays (active-low) =======================
 #define PIN_RELAY_LH       13   // Left Turn

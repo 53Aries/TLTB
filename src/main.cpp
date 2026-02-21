@@ -66,12 +66,15 @@ static constexpr uint32_t COOLDOWN_PERIOD_MS = 120000;     // Required cooldown 
 static constexpr float HIGH_CURRENT_THRESHOLD = 20.5f;     // Current threshold (amps)
 
 // =============================================================================
-// Display Backlight Control
+// INA226 ALERT Pin ISR (Short Circuit Detection)
 // =============================================================================
+// ALERT pin triggers on extreme overcurrent (>30A) before buck shuts down
+// ISR writes flag to NVS immediately for detection on next boot
+static volatile bool g_alertTriggered = false;
 
-static const int BL_CHANNEL = 0;
-static void setBacklight(uint8_t brightness) { 
-  ledcWrite(BL_CHANNEL, brightness); 
+void IRAM_ATTR ina_alert_isr() {
+  g_alertTriggered = true;
+  // Flag will be written to NVS in main loop to avoid I2C in ISR
 }
 
 // -------------------------------------------------------------------
@@ -368,8 +371,7 @@ void setup() {
   relaysBegin();
 
   // TFT & encoder/buttons pins
-  // Keep backlight OFF until panel is fully initialized to avoid white-screen on cold power
-  pinMode(PIN_TFT_BL, OUTPUT); digitalWrite(PIN_TFT_BL, LOW);
+  // TFT backlight not used - display runs without it (GPIO 42 repurposed for INA ALERT)
   pinMode(PIN_TFT_CS, OUTPUT);  digitalWrite(PIN_TFT_CS, HIGH);
   pinMode(PIN_TFT_DC, OUTPUT);
   pinMode(PIN_TFT_RST, OUTPUT);
@@ -395,11 +397,7 @@ void setup() {
   tft->setRotation(1);
   tft->fillScreen(ST77XX_BLACK);
 
-  // Backlight (8-bit)
-  ledcSetup(BL_CHANNEL, 5000, 8);
-  ledcAttachPin(PIN_TFT_BL, BL_CHANNEL);
-  // Enable backlight only after panel is initialized and cleared
-  ledcWrite(BL_CHANNEL, 255);
+  // TFT backlight not used (GPIO 42 repurposed for INA ALERT pin)
 
   // prefs first
   prefs.begin(NVS_NS, false);
@@ -408,7 +406,7 @@ void setup() {
 
   // UI wire-up
   ui = new DisplayUI(DisplayCtor{
-    .pins        = {PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST, PIN_TFT_BL},
+    .pins        = {PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST, -1},  // BL not used
     .ns          = NVS_NS,
     .kLvCut      = KEY_LV_CUTOFF,
     .kWifiSsid   = KEY_WIFI_SSID,
@@ -430,39 +428,59 @@ void setup() {
     .onBleStop      = [](){ g_bleService.shutdownForOta(); },
     .onBleRestart   = [](){ g_bleService.restartAfterOta(); },
   });
-  ui->attachTFT(tft, PIN_TFT_BL);
-  ui->attachBrightnessSetter(setBacklight);
+  ui->attachTFT(tft, -1);  // Backlight not used
+  // No brightness setter needed
   ui->setEncoderReaders(readEncoderStep, okPressedEdge, backPressed);
 
   ui->begin(prefs);               // shows splash, applies brightness
 
-  // Check for buck shutdown event (extreme current detected before power loss)
+  // Check for buck shutdown event (short circuit or extreme current)
   {
+    // Check ALERT-triggered short circuit
+    bool shortCircuit = prefs.getBool(KEY_SHORT_CIRCUIT, false);
     float extremeI = prefs.getFloat(KEY_EXTREME_I, 0.0f);
-    if (extremeI >= 35.0f) {
+    int8_t relayIdx = prefs.getChar(KEY_SHORT_RELAY, -1);
+    
+    if (shortCircuit || extremeI >= 35.0f) {
       // Buck OCP likely caused shutdown - warn user
       tft->fillScreen(ST77XX_RED);
       tft->setTextColor(ST77XX_WHITE, ST77XX_RED);
       tft->setTextSize(2);
       tft->setCursor(6, 6);
-      tft->print("Overcurrent");
+      tft->print("SHORT CIRCUIT");
       tft->setTextSize(1);
+      
+      // Show which output caused the issue
       tft->setCursor(6, 34);
-      tft->print("Extreme overcurrent");
+      tft->print("Extreme Overcurrent");
       tft->setCursor(6, 46);
-      tft->print("detected before restart.");
-      tft->setCursor(6, 70);
-      tft->printf("Current: %.1fA", extremeI);
-      tft->setCursor(6, 82);
-      tft->print("Possible short circuit.");
+      if (relayIdx >= 0 && relayIdx < (int)R_COUNT) {
+        tft->printf("detected on %s", relayName((RelayIndex)relayIdx));
+      } else {
+        tft->print("detected");
+      }
+      
+      tft->setCursor(6, 58);
+      tft->print("Possible Short Circuit");
+      
+      tft->setCursor(6, 76);
+      if (extremeI >= 30.0f) {
+        tft->printf("Current: %.1fA", extremeI);
+      }
+      
+      tft->setCursor(6, 88);
+      tft->print("Check wiring & loads.");
+      
       // Footer instruction
       tft->fillRect(0, 108, 160, 20, ST77XX_BLACK);
       tft->setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
       tft->setCursor(6, 112);
-      tft->print("Check wiring & loads");
-      delay(4000); // Give user time to read
-      // Clear flag so we don't show on every boot
+      tft->print("Contact service if needed");
+      delay(5000); // Give user time to read
+      // Clear flags so we don't show on every boot
+      prefs.remove(KEY_SHORT_CIRCUIT);
       prefs.remove(KEY_EXTREME_I);
+      prefs.remove(KEY_SHORT_RELAY);
       tft->fillScreen(ST77XX_BLACK);
     }
   }
@@ -470,6 +488,16 @@ void setup() {
   // Initialize sensors, RF, and buzzer
   INA226::begin();
   INA226_SRC::begin();
+  
+  // Configure INA226 ALERT pin for extreme overcurrent detection (>30A)
+  // ALERT triggers before buck converter shutdown, allowing ISR to log event
+  if (INA226::PRESENT) {
+    INA226::configureAlert(30.0f);  // Trigger at 30A
+    pinMode(PIN_INA_LOAD_ALERT, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(PIN_INA_LOAD_ALERT), ina_alert_isr, FALLING);
+    Serial.println("[APP] INA226 ALERT ISR attached on GPIO 42");
+  }
+  
   RF::begin();
   Buzzer::begin();
 
@@ -568,6 +596,28 @@ void setup() {
 }
 
 void loop() {
+  // Check for INA226 ALERT trigger (short circuit detection)
+  // Write to NVS immediately when alert fires (before buck shutdown)
+  if (g_alertTriggered) {
+    g_alertTriggered = false;
+    float current = INA226::PRESENT ? INA226::readCurrentA() : 0.0f;
+    
+    // Capture which relay was active when short circuit occurred
+    int8_t activeRelay = -1;
+    for (int i = 0; i < (int)R_COUNT; ++i) {
+      if (relayIsOn(i)) {
+        activeRelay = (int8_t)i;
+        break;  // Take first active relay
+      }
+    }
+    
+    prefs.putBool(KEY_SHORT_CIRCUIT, true);
+    prefs.putFloat(KEY_EXTREME_I, current);
+    prefs.putChar(KEY_SHORT_RELAY, activeRelay);
+    Serial.printf("[ALERT] Short circuit detected! Current=%.1fA, relay=%d, flags written to NVS\n", current, activeRelay);
+    INA226::clearAlert();  // Clear latch for next detection
+  }
+  
   // Read telemetry if present
   tele.srcV  = INA226_SRC::PRESENT ? INA226_SRC::readBusV()    : NAN;
   tele.loadA = INA226::PRESENT     ? INA226::readCurrentA()    : NAN;
