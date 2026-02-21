@@ -51,19 +51,16 @@
 #define PIN_RELAY_TAIL     11   // Tail Lights       - Physical pin 19 (IO11 - bottom edge)
 #define PIN_RELAY_MARKER   10   // Marker Lights     - Physical pin 18 (IO10 - bottom edge)
 #define PIN_RELAY_AUX      9    // Auxiliary         - Physical pin 17 (IO9 - bottom edge)
-#define PIN_RELAY_ENABLE   46   // Enable 12V buck   - Physical pin 16 (IO46 - strapping, safe for output)
 #define PIN_RELAY_SPARE    3    // Spare (unused)    - Physical pin 15 (IO3 - strapping, safe for output)
 
-// Array for DisplayUI.cpp relay status logic (8 channels for ULN2803)
+// Array for DisplayUI.cpp relay status logic
 static const int RELAY_PIN[] = {
   PIN_RELAY_LH,
   PIN_RELAY_RH,
   PIN_RELAY_BRAKE,
   PIN_RELAY_TAIL,
   PIN_RELAY_MARKER,
-  PIN_RELAY_AUX,
-  PIN_RELAY_ENABLE,
-  PIN_RELAY_SPARE
+  PIN_RELAY_AUX
 };
 
 // ======================= Buzzer =======================

@@ -159,8 +159,8 @@ static void enforceRotaryMode(RotaryMode m) {
   // Normal operation: In all non-RF modes, we *force* the relay states each loop.
   // This guarantees RF is effectively ignored unless in MODE_RF_ENABLE.
   auto allOff = [](){
-    // Turn off all output relays, but NOT R_ENABLE (system master relay)
-    for (int i = 0; i < (int)R_ENABLE; ++i) relayOff(i);
+    // Turn off all output relays
+    for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
   };
 
   // Clear BLE active relay tracking when not in RF mode
@@ -214,15 +214,6 @@ static void enforceRotaryMode(RotaryMode m) {
       }
       break;
   }
-
-  // Relay 7 (R_ENABLE) must be OFF when the selector is in position 1 (ALL_OFF)
-  // and ON in all other positions. This is independent of RF control for the
-  // other relays — we enforce it here.
-  if (m == MODE_ALL_OFF) {
-    relayOff(R_ENABLE);
-  } else {
-    relayOn(R_ENABLE);
-  }
 }
 
 // (Relay scan feature removed)
@@ -261,7 +252,7 @@ static void handleBleRelayCommand(RelayIndex idx, bool desiredOn) {
     return;
   }
   int target = static_cast<int>(idx);
-  if (target < (int)R_LEFT || target >= (int)R_ENABLE) return;
+  if (target < (int)R_LEFT || target >= (int)R_COUNT) return;
   if (desiredOn) {
     Serial.printf("[BLE] Turning relay %d ON\n", (int)idx);
     relayOn(idx);
@@ -283,7 +274,7 @@ static const char* describeActiveLabel(RotaryMode mode) {
 
   // Check if BLE has an active relay - takes priority over rotary position
   // This allows the display to show what's actually on when controlled via app
-  if (g_bleActiveRelay >= (int)R_LEFT && g_bleActiveRelay < (int)R_ENABLE) {
+  if (g_bleActiveRelay >= (int)R_LEFT && g_bleActiveRelay < (int)R_COUNT) {
     // Verify the relay is actually still on
     if (relayIsOn(g_bleActiveRelay)) {
       return relayName(static_cast<RelayIndex>(g_bleActiveRelay));
@@ -302,7 +293,7 @@ static const char* describeActiveLabel(RotaryMode mode) {
     case MODE_AUX:    return (getUiMode() == 1) ? "Ele Brakes" : "AUX";
     case MODE_RF_ENABLE: {
       int8_t rfRelay = RF::getActiveRelay();
-      if (rfRelay >= (int)R_LEFT && rfRelay < (int)R_ENABLE) {
+      if (rfRelay >= (int)R_LEFT && rfRelay < (int)R_COUNT) {
         return relayName(static_cast<RelayIndex>(rfRelay));
       }
       return "RF";
@@ -668,8 +659,6 @@ void loop() {
   float current = !isnan(tele.loadA) ? fabsf(tele.loadA) : 0.0f;
   
   if (g_cooldownStartMs > 0) {
-    // Currently in cooldown period - keep enable relay OFF
-    relayOff(R_ENABLE);
     uint32_t elapsed = now - g_cooldownStartMs;
     if (elapsed >= COOLDOWN_PERIOD_MS) {
       // Cooldown complete - resume normal operation
@@ -694,7 +683,6 @@ void loop() {
         g_highCurrentStartMs = 0;
         tele.cooldownSecsRemaining = COOLDOWN_PERIOD_MS / 1000;
         tele.cooldownActive = true;
-        relayOff(R_ENABLE); // Immediately disable
       } else {
         // Still within limit - show countdown to limit
         tele.cooldownSecsRemaining = (HIGH_CURRENT_LIMIT_MS - highDuration) / 1000 + 1;
@@ -752,7 +740,6 @@ void loop() {
             case R_TAIL:   rname = "TAIL";   break;
             case R_MARKER: rname = "MARKER"; break;
             case R_AUX:    rname = "AUX";    break;
-            case R_ENABLE: rname = "12V ENABLE"; break;
             default:       rname = nullptr;   break;
           }
           if (rname) {
@@ -1024,7 +1011,6 @@ void loop() {
   bleCtx.startupGuard = g_startupGuard;
   bleCtx.lvpBypass = protector.lvpBypass();
   bleCtx.outvBypass = protector.outvBypass();
-  bleCtx.enableRelay = relayIsOn(R_ENABLE);
   bleCtx.activeLabel = describeActiveLabel(g_stableRotaryMode);
   bleCtx.timestampMs = millis();
   bleCtx.uiMode = getUiMode();

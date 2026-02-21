@@ -186,9 +186,6 @@ void TltbBleService::publishStatus(const BleStatusContext& ctx) {
   // Timestamp removed - app uses notification receipt time
 
   uint16_t statusFlags = 0;
-  if (ctx.enableRelay) {
-    statusFlags |= kFlagTwelveVoltEnabled;
-  }
   if (ctx.telemetry.lvpLatched) {
     statusFlags |= kFlagLvpLatched;
   }
@@ -217,7 +214,7 @@ void TltbBleService::publishStatus(const BleStatusContext& ctx) {
   setNullableFloat(root, "outVoltage", ctx.telemetry.outV);
 
   uint32_t relayMask = 0;
-  for (int i = 0; i < (int)R_ENABLE; ++i) {
+  for (int i = 0; i < (int)R_COUNT; ++i) {
     if (ctx.relayStates[i]) {
       relayMask |= (1u << i);
     }

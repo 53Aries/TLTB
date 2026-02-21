@@ -46,7 +46,6 @@
 #define PIN_RELAY_TAIL    9    // Tail Lights
 #define PIN_RELAY_MARKER  8    // Marker Lights
 #define PIN_RELAY_AUX     11   // Auxiliary
-#define PIN_RELAY_ENABLE  10    // Enable 12V buck
 
 // Array for DisplayUI.cpp relay status logic
 static const int RELAY_PIN[] = {
@@ -55,8 +54,7 @@ static const int RELAY_PIN[] = {
   PIN_RELAY_BRAKE,
   PIN_RELAY_TAIL,
   PIN_RELAY_MARKER,
-  PIN_RELAY_AUX,
-  PIN_RELAY_ENABLE
+  PIN_RELAY_AUX
 };
 
 // ======================= Buzzer =======================

@@ -19,7 +19,6 @@ struct BleStatusContext {
   bool startupGuard = false;
   bool lvpBypass = false;
   bool outvBypass = false;
-  bool enableRelay = false;
   bool relayStates[R_COUNT] = {false};
   const char* activeLabel = "OFF";
   uint32_t timestampMs = 0;

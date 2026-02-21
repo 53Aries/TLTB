@@ -247,7 +247,6 @@ void setup() {
   pinMode(PIN_RELAY_TAIL, OUTPUT);   digitalWrite(PIN_RELAY_TAIL, HIGH);
   pinMode(PIN_RELAY_MARKER, OUTPUT); digitalWrite(PIN_RELAY_MARKER, HIGH);
   pinMode(PIN_RELAY_AUX, OUTPUT);    digitalWrite(PIN_RELAY_AUX, HIGH);
-  pinMode(PIN_RELAY_ENABLE, OUTPUT); digitalWrite(PIN_RELAY_ENABLE, HIGH);
   Serial.println("[Factory] Relays disabled");
   Serial.flush();
   

@@ -37,7 +37,6 @@ static const char* const kMenuItems[] = {
   "Set OCP Limit",
   "Set Output V Cutoff",
   "OutV Bypass",
-  "12V System",
   "Learn RF Button",
   "Clear RF Remotes",
   "Wi-Fi Connect",
@@ -405,13 +404,7 @@ void DisplayUI::showStatus(const Telemetry& t){
         _tft->print(line);
       }
 
-      // Line 4: 12V enable status (shifted up; InputV removed)
-      _tft->setTextSize(1);
-      _tft->setCursor(4, y12);
-      bool en = relayIsOn(R_ENABLE);
-      _tft->print("12V sys: "); _tft->print(en?"ENABLED":"DISABLED");
-
-      // Line 5: Batt Volt (was LVP) (colored by state: red=ACTIVE, yellow=BYPASS, green=ok) + live src voltage
+      // Line 4: Batt Volt (was LVP) (colored by state: red=ACTIVE, yellow=BYPASS, green=ok) + live src voltage
       _tft->setTextSize(1);
       _tft->setCursor(4, yLvp);
       bool bypass = _getLvpBypass ? _getLvpBypass() : false;
@@ -538,21 +531,6 @@ void DisplayUI::showStatus(const Telemetry& t){
 
 
   // InputV removed; no redraw block needed for it
-
-  // 12V system state changed? redraw its line (covers cases where InputV didn't change)
-  {
-    static bool prev12 = false;
-    bool en = relayIsOn(R_ENABLE);
-    if (en != prev12) {
-      // clear the area and redraw the 12V status
-      _tft->fillRect(0, y12-2, W, h12+2, ST77XX_BLACK);
-  _tft->setTextSize(1);
-      _tft->setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-      _tft->setCursor(4, y12);
-      _tft->print("12V sys: "); _tft->print(en?"ENABLED":"DISABLED");
-      prev12 = en;
-    }
-  }
 
   // LVP status or bypass changed?
   {
@@ -1000,43 +978,7 @@ bool DisplayUI::handleMenuSelect(int idx){
     case 2: adjustOcpLimit(); break;                        // Set OCP Limit
   case 3: adjustOutputVCutoff(); break;                   // Set Output V Cutoff
   case 4: toggleOutvBypass(); break;                      // OutV Bypass
-  case 5: {                                               // 12V System
-      // 12V System toggle UI (no-flicker incremental updates)
-      _tft->fillScreen(ST77XX_BLACK);
-      _tft->setTextSize(1);
-      _tft->setCursor(6,10); _tft->println("12V System");
-      _tft->setCursor(6,56); _tft->print("OK=Toggle  BACK=Exit");
-
-      // Draw state once, then update only when changed
-      bool prevEn = !relayIsOn(R_ENABLE); // force initial draw
-      auto drawState = [&](){
-        bool en = relayIsOn(R_ENABLE);
-        _tft->fillRect(0,24,160,14,ST77XX_BLACK); // clear line area around y=30
-        _tft->setCursor(6,30); _tft->print("State: "); _tft->print(en?"ENABLED":"DISABLED");
-        prevEn = en;
-      };
-
-      drawState();
-
-      while(true) {
-        bool enNow = relayIsOn(R_ENABLE);
-        if (enNow != prevEn) drawState();
-
-        if (okPressed()) {
-          if (enNow) relayOff(R_ENABLE); else relayOn(R_ENABLE);
-          // brief toast without clearing full screen
-          _tft->fillRect(0,44,160,12,ST77XX_BLACK);
-          _tft->setCursor(6,44); _tft->print("Toggled");
-          delay(250);
-          _tft->fillRect(0,44,160,12,ST77XX_BLACK);
-          drawState();
-        }
-        if (backPressed()) break;
-        delay(20);
-      }
-      g_forceHomeFull = true;
-    } break;
-  case 6: {                                               // Learn RF Button
+  case 5: {                                               // Learn RF Button
       // RF Learn (simple modal)
       int sel = 0, lastSel = -1;
       _tft->fillScreen(ST77XX_BLACK);
@@ -1099,7 +1041,7 @@ bool DisplayUI::handleMenuSelect(int idx){
         delay(12);
       }
     } break;
-  case 7: {                                               // Clear RF Remotes
+  case 6: {                                               // Clear RF Remotes
       // Clear RF Remotes (confirmation)
       _tft->fillScreen(ST77XX_BLACK);
   _tft->setTextSize(1);
@@ -1113,10 +1055,10 @@ bool DisplayUI::handleMenuSelect(int idx){
         delay(10);
       }
     } break;
-  case 8: wifiScanAndConnectUI(); break;                  // Wi-Fi Connect
-  case 9: wifiForget(); break;                            // Wi-Fi Forget
-  case 10: runOta(); break;                               // OTA Update
-  case 11: showSystemInfo(); break;                       // System Info
+  case 7: wifiScanAndConnectUI(); break;                  // Wi-Fi Connect
+  case 8: wifiForget(); break;                            // Wi-Fi Forget
+  case 9: runOta(); break;                               // OTA Update
+  case 10: showSystemInfo(); break;                       // System Info
   }
   return stayInMenu;
 }

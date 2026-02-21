@@ -12,11 +12,10 @@ enum RelayIndex : uint8_t {
   R_TAIL,
   R_MARKER,
   R_AUX,
-  R_ENABLE,
   R_COUNT
 };
 
-// pins.hpp must provide RELAY_PIN[] with R_COUNT entries (7 including R_ENABLE)
+// pins.hpp must provide RELAY_PIN[] with R_COUNT entries
 static_assert(sizeof(RELAY_PIN) / sizeof(RELAY_PIN[0]) == R_COUNT,
               "RELAY_PIN[] size must equal R_COUNT");
 
@@ -74,7 +73,6 @@ inline const char* relayName(RelayIndex r){
     case R_TAIL:   return "TAIL";
     case R_MARKER: return "MARKER";
     case R_AUX:    return "AUX";
-    case R_ENABLE: return "12V";
     default:       return "R?";
   }
 }
