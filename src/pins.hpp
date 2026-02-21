@@ -44,7 +44,7 @@
 // Triggers before buck converter shutdown to log short circuit event
 #define PIN_INA_LOAD_ALERT  41
 
-// ======================= Relays (active-low) =======================
+// ======================= Relays (ULN2803 active-high) =======================
 #define PIN_RELAY_LH       9   // Left Turn
 #define PIN_RELAY_RH       10   // Right Turn
 #define PIN_RELAY_BRAKE   11    // Brake Lights

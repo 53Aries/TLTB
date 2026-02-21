@@ -19,27 +19,28 @@ enum RelayIndex : uint8_t {
 static_assert(sizeof(RELAY_PIN) / sizeof(RELAY_PIN[0]) == R_COUNT,
               "RELAY_PIN[] size must equal R_COUNT");
 
-// We track software state since OFF uses high-Z (INPUT)
+// Track relay state in software
 // Single shared definition provided in relays.cpp
 extern bool g_relay_on[R_COUNT];
 
-// ----- Open-drain emulation on 3.3V MCU driving 5V LOW-trigger inputs -----
-// ON  = sink to GND  -> pinMode(OUTPUT); digitalWrite(LOW)
-// OFF = high-impedance -> pinMode(INPUT) (no pullup)
+// ----- ULN2803 Darlington Array Control (Active-HIGH) -----
+// ON  = HIGH -> pinMode(OUTPUT); digitalWrite(HIGH)
+// OFF = LOW  -> pinMode(OUTPUT); digitalWrite(LOW)
+// ULN2803 has internal 2.7kΩ base resistors; external 1kΩ current-limiting recommended
 
-inline void _sinkOn(int pin) {
+inline void _relaySetHigh(int pin) {
   pinMode(pin, OUTPUT);
-  digitalWrite(pin, LOW);        // actively pull low
+  digitalWrite(pin, HIGH);       // HIGH = ULN2803 conducts, relay ON
 }
 
-inline void _floatOff(int pin) {
-  pinMode(pin, INPUT);           // high-Z; board's pull-up drives it HIGH (OFF)
-  // (do NOT enable INPUT_PULLUP here)
+inline void _relaySetLow(int pin) {
+  pinMode(pin, OUTPUT);
+  digitalWrite(pin, LOW);        // LOW = ULN2803 off, relay OFF
 }
 
 // Core controls
-inline void relayOn(RelayIndex r)  { _sinkOn(RELAY_PIN[(int)r]); g_relay_on[(int)r] = true; }
-inline void relayOff(RelayIndex r) { _floatOff(RELAY_PIN[(int)r]); g_relay_on[(int)r] = false; }
+inline void relayOn(RelayIndex r)  { _relaySetHigh(RELAY_PIN[(int)r]); g_relay_on[(int)r] = true; }
+inline void relayOff(RelayIndex r) { _relaySetLow(RELAY_PIN[(int)r]); g_relay_on[(int)r] = false; }
 inline bool relayIsOn(RelayIndex r){ return g_relay_on[(int)r]; }
 
 // int overloads for convenience
@@ -56,10 +57,10 @@ inline void allOff(){
   for (int i = 0; i < (int)R_COUNT; ++i) relayOff(i);
 }
 
-// One-time setup: ensure every channel is OFF (floating)
+// One-time setup: ensure every channel is OFF (LOW)
 inline void relaysBegin(){
   for (int i = 0; i < (int)R_COUNT; ++i){
-    _floatOff(RELAY_PIN[i]);      // OFF = INPUT (high-Z)
+    _relaySetLow(RELAY_PIN[i]);   // OFF = OUTPUT LOW
     g_relay_on[i] = false;
   }
 }
